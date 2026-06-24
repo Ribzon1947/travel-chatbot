@@ -134,7 +134,10 @@ def _strip_breakdowns(text: str) -> str:
 def _get_client() -> genai.Client:
     global _client
     if _client is None:
-        _client = genai.Client(api_key=get_settings().google_ai_key)
+        key = get_settings().google_ai_key
+        if not key:
+            raise RuntimeError("GOOGLE_AI_KEY is not configured. Add it in Render → Environment.")
+        _client = genai.Client(api_key=key)
     return _client
 
 
