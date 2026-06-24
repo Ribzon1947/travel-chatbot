@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Panel – Travel Cost</title>
+  <script src="/config.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:      #1a73e8;
+      --blue-dark: #1557b0;
+      --blue-light:#e8f0fe;
+      --green:     #0f9d58;
+      --green-bg:  #e6f4ea;
+      --red:       #d93025;
+      --red-bg:    #fce8e6;
+      --bg:        #f0f4f8;
+      --surface:   #ffffff;
+      --border:    #dadce0;
+      --text:      #202124;
+      --muted:     #5f6368;
+    }
+
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+    }
+
+    /* ── Login overlay ── */
+    #login-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+    #login-overlay.hidden { display: none; }
+
+    .login-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 36px 32px;
+      width: 360px;
+      box-shadow: 0 8px 30px rgba(0,0,0,.25);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .login-card h2 {
+      font-size: 20px;
+      color: var(--text);
+      text-align: center;
+    }
+    .login-card p.sub {
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+      margin-top: -6px;
+    }
+    .login-card input[type="password"] {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .login-card input[type="password"]:focus { border-color: var(--blue); }
+    .login-card .btn-login {
+      width: 100%;
+      padding: 11px;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .login-card .btn-login:hover  { background: var(--blue-dark); }
+    .login-card .btn-login:disabled { background: #aaa; cursor: not-allowed; }
+    #login-error {
+      font-size: 13px;
+      color: var(--red);
+      text-align: center;
+      min-height: 18px;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--blue);
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.18);
+    }
+    header h1 { font-size: 18px; font-weight: 600; }
+    .hdr-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+    .back-btn, .logout-btn {
+      color: #fff;
+      font-size: 13px;
+      text-decoration: none;
+      background: rgba(255,255,255,.2);
+      border: 1px solid rgba(255,255,255,.4);
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background .15s;
+    }
+    .back-btn:hover, .logout-btn:hover { background: rgba(255,255,255,.3); }
+
+    /* ── Layout ── */
+    .container { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }
+    .card h2 {
+      font-size: 15px;
+      color: var(--text);
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Add form ── */
+    .add-form {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr auto;
+      gap: 10px;
+      align-items: end;
+    }
+    .fg label {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    .fg input {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--text);
+      outline: none;
+    }
+    .fg input:focus { border-color: var(--blue); }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: background .15s;
+    }
+    .btn-primary   { background: var(--blue);  color: #fff; }
+    .btn-primary:hover  { background: var(--blue-dark); }
+    .btn-danger    { background: var(--red);   color: #fff; }
+    .btn-danger:hover   { background: #b52a1c; }
+    .btn-success   { background: var(--green); color: #fff; }
+    .btn-success:hover  { background: #0a7a45; }
+    .btn-secondary { background: #f1f3f4; color: var(--text); }
+    .btn-secondary:hover { background: #e8eaed; }
+
+    /* ── Table ── */
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 680px; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+    th { background: var(--blue-light); color: var(--blue); font-weight: 600; font-size: 12px; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8f9fa; }
+
+    .dest-name { font-weight: 600; color: var(--text); }
+    .badge {
+      display: inline-block;
+      background: var(--green-bg);
+      color: var(--green);
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 10px;
+      margin-left: 6px;
+      font-weight: 600;
+    }
+
+    td input[type="number"] {
+      width: 90px;
+      padding: 5px 8px;
+      border: 1.5px solid var(--blue);
+      border-radius: 5px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+    }
+    .actions { display: flex; gap: 6px; }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed;
+      bottom: 20px; right: 20px;
+      background: #323232;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all .3s;
+      pointer-events: none;
+      z-index: 1000;
+    }
+    .toast.show    { opacity: 1; transform: translateY(0); }
+    .toast.success { background: var(--green); }
+    .toast.error   { background: var(--red); }
+
+    @media (max-width: 720px) {
+      .add-form { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login-overlay">
+  <div class="login-card">
+    <h2>🔐 Admin Login</h2>
+    <p class="sub">Enter the admin password to continue</p>
+    <input type="password" id="pwd-input" placeholder="Admin password"
+           onkeydown="if(event.key==='Enter') doLogin()" />
+    <button class="btn-login" id="login-btn" onclick="doLogin()">Sign In</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<header>
+  <span style="font-size:22px">⚙️</span>
+  <h1>Admin Panel — Destination Pricing</h1>
+  <div class="hdr-right">
+    <a href="/" class="back-btn">← Back to Chat</a>
+    <button class="logout-btn" onclick="logout()">Logout</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Add / Update destination -->
+  <div class="card">
+    <h2>➕ Add / Update Destination</h2>
+    <div class="add-form">
+      <div class="fg">
+        <label>Destination Name</label>
+        <input type="text" id="add-name" placeholder="e.g. Goa" />
+      </div>
+      <div class="fg">
+        <label>Hotel (₹/room/night)</label>
+        <input type="number" id="add-hotel" placeholder="2000" min="1" />
+      </div>
+      <div class="fg">
+        <label>People per Room</label>
+        <input type="number" id="add-ppr" placeholder="2" min="1" />
+      </div>
+      <div class="fg">
+        <label>Cab (₹ per day)</label>
+        <input type="number" id="add-cab" placeholder="3000" min="1" />
+      </div>
+      <div class="fg">
+        <label>Meals (₹/person/day)</label>
+        <input type="number" id="add-meals" placeholder="700" min="1" />
+      </div>
+      <div style="padding-bottom:1px">
+        <button class="btn btn-primary" onclick="addDestination()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Destinations table -->
+  <div class="card">
+    <h2>📍 All Destinations</h2>
+    <div class="tbl-wrap">
+      <div id="table-wrap"><p style="color:var(--muted);font-size:13px">Loading…</p></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let editingRow = null;
+
+/* ── Auth helpers ────────────────────────────────────────────────── */
+function getToken()         { return sessionStorage.getItem('admin_token'); }
+function saveToken(t)       { sessionStorage.setItem('admin_token', t); }
+function clearToken()       { sessionStorage.removeItem('admin_token'); }
+function authHeader()       { return { 'Authorization': `Bearer ${getToken()}`, 'Content-Type': 'application/json' }; }
+
+function showLoginOverlay(msg = '') {
+  document.getElementById('login-overlay').classList.remove('hidden');
+  document.getElementById('login-error').textContent = msg;
+  document.getElementById('pwd-input').value = '';
+  setTimeout(() => document.getElementById('pwd-input').focus(), 50);
+}
+function hideLoginOverlay() {
+  document.getElementById('login-overlay').classList.add('hidden');
+}
+
+async function doLogin() {
+  const pwd = document.getElementById('pwd-input').value.trim();
+  if (!pwd) return;
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+  document.getElementById('login-error').textContent = '';
+
+  try {
+    const res = await fetch(`${BACKEND}/api/admin/destinations`, {
+      headers: { 'Authorization': `Bearer ${pwd}` }
+    });
+    if (res.ok) {
+      saveToken(pwd);
+      hideLoginOverlay();
+      renderTable(await res.json());
+    } else if (res.status === 401) {
+      document.getElementById('login-error').textContent = 'Incorrect password. Try again.';
+    } else {
+      document.getElementById('login-error').textContent = 'Server error. Try again.';
+    }
+  } catch (e) {
+    document.getElementById('login-error').textContent = 'Cannot reach backend server.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+}
+
+function logout() {
+  clearToken();
+  showLoginOverlay();
+}
+
+/* ── Load & render ─────────────────────────────────────────────────── */
+async function loadDestinations() {
+  try {
+    const res = await fetch(`${BACKEND}/api/admin/destinations`, { headers: authHeader() });
+    if (res.status === 401) { showLoginOverlay('Session expired. Please sign in again.'); return; }
+    if (!res.ok) { showToast('Failed to load destinations', 'error'); return; }
+    renderTable(await res.json());
+  } catch (e) {
+    showToast('Network error: ' + e.message, 'error');
+  }
+}
+
+function renderTable(data) {
+  const entries = Object.entries(data);
+  if (!entries.length) {
+    document.getElementById('table-wrap').innerHTML =
+      '<p style="color:var(--muted);font-size:13px">No destinations yet.</p>';
+    return;
+  }
+
+  let html = `<table>
+    <thead><tr>
+      <th>Destination</th>
+      <th>Hotel (₹/room/night)</th>
+      <th>People / Room</th>
+      <th>Cab (₹/day)</th>
+      <th>Meals (₹/person/day)</th>
+      <th>Actions</th>
+    </tr></thead>
+    <tbody>`;
+
+  for (const [name, p] of entries) {
+    const isDefault = name === 'Default';
+    html += `<tr id="row-${CSS.escape(name)}">
+      <td>
+        <span class="dest-name">${name}</span>
+        ${isDefault ? '<span class="badge">default</span>' : ''}
+      </td>
+      <td>₹${p.hotel_cost_per_room_per_night.toLocaleString()}</td>
+      <td>${p.people_per_room}</td>
+      <td>₹${p.cab_cost_per_day.toLocaleString()}</td>
+      <td>₹${p.meal_cost_per_person_per_day.toLocaleString()}</td>
+      <td>
+        <div class="actions">
+          <button class="btn btn-secondary" onclick='startEdit(${JSON.stringify(name)}, ${JSON.stringify(p)})'>Edit</button>
+          ${!isDefault ? `<button class="btn btn-danger" onclick='deleteDestination(${JSON.stringify(name)})'>Delete</button>` : ''}
+        </div>
+      </td>
+    </tr>`;
+  }
+
+  html += '</tbody></table>';
+  document.getElementById('table-wrap').innerHTML = html;
+  editingRow = null;
+}
+
+/* ── Inline edit ─────────────────────────────────────────────────── */
+function startEdit(name, pricing) {
+  if (editingRow) loadDestinations();
+  editingRow = name;
+  const row = document.getElementById(`row-${CSS.escape(name)}`);
+  const isDefault = name === 'Default';
+  row.innerHTML = `
+    <td>
+      <span class="dest-name">${name}</span>
+      ${isDefault ? '<span class="badge">default</span>' : ''}
+    </td>
+    <td><input type="number" id="e-hotel" value="${pricing.hotel_cost_per_room_per_night}" min="1" /></td>
+    <td><input type="number" id="e-ppr"   value="${pricing.people_per_room}"                min="1" /></td>
+    <td><input type="number" id="e-cab"   value="${pricing.cab_cost_per_day}"               min="1" /></td>
+    <td><input type="number" id="e-meals" value="${pricing.meal_cost_per_person_per_day}"   min="1" /></td>
+    <td>
+      <div class="actions">
+        <button class="btn btn-success"   onclick='saveEdit(${JSON.stringify(name)})'>Save</button>
+        <button class="btn btn-secondary" onclick="cancelEdit()">Cancel</button>
+      </div>
+    </td>`;
+}
+
+function cancelEdit() { editingRow = null; loadDestinations(); }
+
+async function saveEdit(name) {
+  const pricing = {
+    hotel_cost_per_room_per_night: parseInt(document.getElementById('e-hotel').value),
+    people_per_room:               parseInt(document.getElementById('e-ppr').value),
+    cab_cost_per_day:              parseInt(document.getElementById('e-cab').value),
+    meal_cost_per_person_per_day:  parseInt(document.getElementById('e-meals').value),
+  };
+  if (Object.values(pricing).some(v => isNaN(v) || v < 1)) {
+    showToast('All values must be positive numbers', 'error'); return;
+  }
+  try {
+    const res = await fetch(`${BACKEND}/api/admin/destinations/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: authHeader(),
+      body: JSON.stringify(pricing),
+    });
+    if (res.status === 401) { showLoginOverlay('Session expired. Please sign in again.'); return; }
+    if (res.ok) { showToast(`${name} updated`, 'success'); editingRow = null; loadDestinations(); }
+    else { const e = await res.json().catch(()=>({})); showToast(e.detail || 'Update failed', 'error'); }
+  } catch (e) { showToast('Network error', 'error'); }
+}
+
+/* ── Add ─────────────────────────────────────────────────────────── */
+async function addDestination() {
+  const name  = document.getElementById('add-name').value.trim();
+  const hotel = parseInt(document.getElementById('add-hotel').value);
+  const ppr   = parseInt(document.getElementById('add-ppr').value);
+  const cab   = parseInt(document.getElementById('add-cab').value);
+  const meals = parseInt(document.getElementById('add-meals').value);
+
+  if (!name)                                           { showToast('Destination name is required', 'error'); return; }
+  if ([hotel,ppr,cab,meals].some(v => isNaN(v)||v<1)) { showToast('All pricing values must be positive', 'error'); return; }
+
+  try {
+    const res = await fetch(`${BACKEND}/api/admin/destinations`, {
+      method: 'POST',
+      headers: authHeader(),
+      body: JSON.stringify({ name, pricing: {
+        hotel_cost_per_room_per_night: hotel,
+        people_per_room: ppr,
+        cab_cost_per_day: cab,
+        meal_cost_per_person_per_day: meals,
+      }}),
+    });
+    if (res.status === 401) { showLoginOverlay('Session expired. Please sign in again.'); return; }
+    if (res.ok) {
+      showToast(`${name} saved`, 'success');
+      ['add-name','add-hotel','add-ppr','add-cab','add-meals'].forEach(id => document.getElementById(id).value = '');
+      loadDestinations();
+    } else { const e = await res.json().catch(()=>({})); showToast(e.detail || 'Save failed', 'error'); }
+  } catch (e) { showToast('Network error', 'error'); }
+}
+
+/* ── Delete ─────────────────────────────────────────────────────── */
+async function deleteDestination(name) {
+  if (!confirm(`Delete pricing for "${name}"? This cannot be undone.`)) return;
+  try {
+    const res = await fetch(`${BACKEND}/api/admin/destinations/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+      headers: authHeader(),
+    });
+    if (res.status === 401) { showLoginOverlay('Session expired. Please sign in again.'); return; }
+    if (res.ok) { showToast(`${name} deleted`, 'success'); loadDestinations(); }
+    else { const e = await res.json().catch(()=>({})); showToast(e.detail || 'Delete failed', 'error'); }
+  } catch (e) { showToast('Network error', 'error'); }
+}
+
+/* ── Toast ─────────────────────────────────────────────────────── */
+function showToast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast show ${type}`;
+  setTimeout(() => { el.className = 'toast'; }, 3000);
+}
+
+/* ── Init ────────────────────────────────────────────────────────── */
+const saved = getToken();
+if (saved) {
+  // Verify saved token is still valid
+  fetch(`${BACKEND}/api/admin/destinations`, { headers: { 'Authorization': `Bearer ${saved}` } })
+    .then(r => {
+      if (r.ok) { hideLoginOverlay(); return r.json().then(renderTable); }
+      else showLoginOverlay();
+    })
+    .catch(() => showLoginOverlay('Cannot reach backend server.'));
+} else {
+  showLoginOverlay();
+}
+</script>
+</body>
+</html>

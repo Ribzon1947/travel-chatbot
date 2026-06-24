@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Travel Cost Assistant</title>
+  <script src="/config.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:       #1a73e8;
+      --blue-dark:  #1557b0;
+      --blue-light: #e8f0fe;
+      --green:      #0f9d58;
+      --green-bg:   #e6f4ea;
+      --bg:         #f0f4f8;
+      --surface:    #ffffff;
+      --border:     #dadce0;
+      --text:       #202124;
+      --muted:      #5f6368;
+      --radius:     18px;
+    }
+
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Header ── */
+    header {
+      width: 100%;
+      background: var(--blue);
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.18);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .hdr-icon { font-size: 24px; }
+    .hdr-text h1 { font-size: 17px; font-weight: 600; }
+    .hdr-text p  { font-size: 12px; opacity: .8; margin-top: 1px; }
+    .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .status-dot {
+      width: 9px; height: 9px;
+      background: #34a853;
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(255,255,255,.4);
+    }
+    .admin-link {
+      color: #fff;
+      font-size: 12px;
+      text-decoration: none;
+      background: rgba(255,255,255,.2);
+      border: 1px solid rgba(255,255,255,.35);
+      padding: 4px 12px;
+      border-radius: 14px;
+      transition: background .15s;
+    }
+    .admin-link:hover { background: rgba(255,255,255,.32); }
+
+    /* ── Route bar ── */
+    .route-bar {
+      width: 100%;
+      max-width: 780px;
+      padding: 10px 16px 4px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .route-bar label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .route-bar input, .route-bar select {
+      border: 1.5px solid var(--border);
+      border-radius: 20px;
+      padding: 5px 14px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
+      outline: none;
+      transition: border-color .2s;
+    }
+    .route-bar input { width: 130px; }
+    .route-bar select { cursor: pointer; min-width: 130px; }
+    .route-bar input:focus, .route-bar select:focus { border-color: var(--blue); }
+    .route-arrow { font-size: 16px; color: var(--muted); }
+
+    /* ── Pricing pills ── */
+    .pricing-bar {
+      width: 100%;
+      max-width: 780px;
+      padding: 4px 16px 8px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .pill {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .pill b { color: var(--blue); }
+
+    /* ── Chat area ── */
+    #chat {
+      flex: 1;
+      width: 100%;
+      max-width: 780px;
+      overflow-y: auto;
+      padding: 12px 16px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      scroll-behavior: smooth;
+    }
+
+    .msg-row {
+      display: flex;
+      gap: 10px;
+      animation: fadeUp .22s ease;
+    }
+    .msg-row.user { flex-direction: row-reverse; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .avatar {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: grid; place-items: center;
+      font-size: 17px;
+      align-self: flex-end;
+    }
+    .bot-av  { background: var(--blue-light); }
+    .user-av { background: #dbeafe; }
+
+    .bubble {
+      max-width: 72%;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+    .msg-row.bot .bubble {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+      color: var(--text);
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }
+    .msg-row.user .bubble {
+      background: var(--blue);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+      white-space: pre-wrap;
+    }
+
+    .bubble strong { font-weight: 700; }
+    .bubble em     { font-style: italic; opacity: .85; }
+
+    .cost-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+    .cost-table th, .cost-table td {
+      padding: 6px 10px;
+      border: 1px solid #e0e0e0;
+      text-align: left;
+    }
+    .cost-table th { background: var(--blue-light); color: var(--blue); font-weight: 600; }
+    .cost-table tr.total-row td {
+      background: var(--green-bg);
+      font-weight: 700;
+      color: var(--green);
+    }
+    .cost-table tr:not(:first-child):nth-child(even) td { background: #f8f9fa; }
+
+    /* Typing dots */
+    .typing-row { display: flex; gap: 10px; }
+    .typing-bub {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      border-bottom-left-radius: 4px;
+      padding: 12px 16px;
+      display: flex; gap: 5px; align-items: center;
+    }
+    .typing-bub span {
+      width: 7px; height: 7px;
+      background: var(--muted);
+      border-radius: 50%;
+      animation: bounce .85s infinite;
+    }
+    .typing-bub span:nth-child(2) { animation-delay: .14s; }
+    .typing-bub span:nth-child(3) { animation-delay: .28s; }
+    @keyframes bounce {
+      0%,60%,100% { transform: translateY(0); }
+      30%          { transform: translateY(-6px); }
+    }
+
+    /* ── Input bar ── */
+    .input-wrap {
+      width: 100%;
+      max-width: 780px;
+      padding: 10px 16px 14px;
+    }
+    .suggestions {
+      display: flex; gap: 8px; flex-wrap: wrap;
+      padding: 0 0 8px 44px;
+    }
+    .sug-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 5px 13px;
+      font-size: 12px;
+      color: var(--blue);
+      cursor: pointer;
+      transition: background .15s;
+      font-family: inherit;
+    }
+    .sug-btn:hover { background: var(--blue-light); }
+
+    .input-row {
+      display: flex; gap: 8px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 28px;
+      padding: 6px 6px 6px 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      transition: border-color .2s;
+    }
+    .input-row:focus-within { border-color: var(--blue); }
+
+    #msg-input {
+      flex: 1; border: none; outline: none;
+      font-size: 14px; color: var(--text);
+      background: transparent; resize: none;
+      max-height: 120px; padding-top: 4px;
+      line-height: 1.5; font-family: inherit;
+    }
+    #msg-input::placeholder { color: #aaa; }
+
+    #send-btn {
+      width: 40px; height: 40px;
+      border-radius: 50%; border: none;
+      background: var(--blue); color: #fff;
+      cursor: pointer; display: grid; place-items: center;
+      flex-shrink: 0;
+      transition: background .2s, transform .1s;
+    }
+    #send-btn:hover   { background: var(--blue-dark); }
+    #send-btn:active  { transform: scale(.92); }
+    #send-btn:disabled { background: #bbb; cursor: not-allowed; }
+
+    .hint {
+      text-align: center; font-size: 11px;
+      color: #aaa; margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-icon">✈️</div>
+  <div class="hdr-text">
+    <h1>Travel Cost Assistant</h1>
+    <p>Instant trip expense calculator</p>
+  </div>
+  <div class="hdr-right">
+    <a href="/admin" class="admin-link">⚙️ Admin</a>
+    <div class="status-dot" title="Online"></div>
+  </div>
+</header>
+
+<!-- Route selector -->
+<div class="route-bar">
+  <label>From</label>
+  <input type="text" id="from-input" placeholder="Your city" value="" />
+  <span class="route-arrow">→</span>
+  <label>To</label>
+  <select id="to-select">
+    <option value="Default">Default</option>
+  </select>
+</div>
+
+<!-- Dynamic pricing pills -->
+<div class="pricing-bar" id="pricing-bar">
+  <div class="pill">🏨 Hotel <b id="pill-hotel">₹2,000 / room / night</b></div>
+  <div class="pill">👥 Capacity <b id="pill-ppr">2 people / room</b></div>
+  <div class="pill">🚕 Cab <b id="pill-cab">₹3,000 / day</b></div>
+  <div class="pill">🍽️ Meals <b id="pill-meals">₹700 / person / day</b></div>
+</div>
+
+<div id="chat"></div>
+
+<div class="input-wrap">
+  <div class="suggestions" id="suggestions">
+    <button class="sug-btn">Cost for 4 people, 3 days</button>
+    <button class="sug-btn">How much for 1 person, 2 days?</button>
+    <button class="sug-btn">Trip for 10 people, 5 days</button>
+    <button class="sug-btn">Show me the pricing</button>
+  </div>
+  <div class="input-row">
+    <textarea id="msg-input" rows="1"
+      placeholder="e.g. Cost for 6 people for 4 days…"></textarea>
+    <button id="send-btn" title="Send">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.5"
+           stroke-linecap="round" stroke-linejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"></line>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+      </svg>
+    </button>
+  </div>
+  <p class="hint">Enter to send · Shift+Enter for new line</p>
+</div>
+
+<script>
+const chatEl    = document.getElementById('chat');
+const inputEl   = document.getElementById('msg-input');
+const sendBtn   = document.getElementById('send-btn');
+const sugsEl    = document.getElementById('suggestions');
+const fromInput = document.getElementById('from-input');
+const toSelect  = document.getElementById('to-select');
+
+let history = [];
+let allPricing = {};
+
+/* ── Load destinations ───────────────────────────────────────────── */
+async function loadDestinations() {
+  try {
+    const res = await fetch(`${BACKEND}/api/destinations`);
+    if (!res.ok) return;
+    allPricing = await res.json();
+
+    const current = toSelect.value;
+    toSelect.innerHTML = '';
+    for (const name of Object.keys(allPricing)) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (name === current) opt.selected = true;
+      toSelect.appendChild(opt);
+    }
+    updatePills();
+  } catch (_) {}
+}
+
+function updatePills() {
+  const dest = toSelect.value;
+  const p = allPricing[dest];
+  if (!p) return;
+  document.getElementById('pill-hotel').textContent  = `₹${p.hotel_cost_per_room_per_night.toLocaleString()} / room / night`;
+  document.getElementById('pill-ppr').textContent    = `${p.people_per_room} people / room`;
+  document.getElementById('pill-cab').textContent    = `₹${p.cab_cost_per_day.toLocaleString()} / day`;
+  document.getElementById('pill-meals').textContent  = `₹${p.meal_cost_per_person_per_day.toLocaleString()} / person / day`;
+}
+
+toSelect.addEventListener('change', updatePills);
+
+/* ── Text → HTML renderer ─────────────────────────────────────────── */
+function renderMarkdown(raw) {
+  const lines = raw.split('\n');
+  let html = '', tRows = [], inTbl = false;
+
+  function flushTable() {
+    if (!tRows.length) return;
+    html += '<table class="cost-table"><thead><tr>';
+    tRows[0].forEach(h => { html += `<th>${h}</th>`; });
+    html += '</tr></thead><tbody>';
+    tRows.slice(1).forEach((row, i) => {
+      const isLast = i === tRows.length - 2;
+      html += isLast ? '<tr class="total-row">' : '<tr>';
+      row.forEach(c => { html += `<td>${c}</td>`; });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    tRows = []; inTbl = false;
+  }
+
+  for (const raw_line of lines) {
+    const l = raw_line.trim();
+    if (l.startsWith('|') && l.endsWith('|')) {
+      if (/^\|\s*[-: ]+(\|\s*[-: ]+)*\|$/.test(l)) continue;
+      inTbl = true;
+      tRows.push(l.slice(1,-1).split('|').map(c => applyInline(c.trim())));
+      continue;
+    }
+    if (inTbl) flushTable();
+    if (l.startsWith('## '))     { html += `<p><strong style="font-size:15px;color:#1a73e8">${applyInline(l.slice(3))}</strong></p>`; continue; }
+    if (l.startsWith('# '))      { html += `<p><strong style="font-size:16px;color:#1a73e8">${applyInline(l.slice(2))}</strong></p>`; continue; }
+    if (/^[•\-\*] /.test(l))     { html += `<p style="padding-left:14px">• ${applyInline(l.slice(2))}</p>`; continue; }
+    if (l === '')                 { html += '<br>'; continue; }
+    html += `<p>${applyInline(l)}</p>`;
+  }
+  if (inTbl) flushTable();
+  return html;
+}
+
+function applyInline(t) {
+  return t
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+    .replace(/`(.+?)`/g,       '<code>$1</code>');
+}
+
+/* ── DOM helpers ────────────────────────────────────────────────────── */
+function addMsg(role, text) {
+  const row = document.createElement('div');
+  row.className = `msg-row ${role}`;
+  const av  = document.createElement('div');
+  av.className = `avatar ${role === 'bot' ? 'bot-av' : 'user-av'}`;
+  av.textContent = role === 'bot' ? '🤖' : '🧑';
+  const bub = document.createElement('div');
+  bub.className = 'bubble';
+  if (role === 'bot') bub.innerHTML = renderMarkdown(text);
+  else bub.textContent = text;
+  row.appendChild(av);
+  row.appendChild(bub);
+  chatEl.appendChild(row);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function showTyping() {
+  const row = document.createElement('div');
+  row.id = 'typing'; row.className = 'typing-row';
+  const av  = document.createElement('div');
+  av.className = 'avatar bot-av'; av.textContent = '🤖';
+  const bub = document.createElement('div');
+  bub.className = 'typing-bub';
+  bub.innerHTML = '<span></span><span></span><span></span>';
+  row.appendChild(av); row.appendChild(bub);
+  chatEl.appendChild(row);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+function hideTyping() {
+  const el = document.getElementById('typing');
+  if (el) el.remove();
+}
+
+/* ── Send ───────────────────────────────────────────────────────────── */
+async function send(text) {
+  text = text.trim();
+  if (!text) return;
+
+  sugsEl.style.display = 'none';
+  addMsg('user', text);
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+  sendBtn.disabled = true;
+  showTyping();
+
+  try {
+    const res = await fetch(`${BACKEND}/api/chat`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message:       text,
+        history,
+        from_location: fromInput.value.trim(),
+        to_location:   toSelect.value,
+      }),
+    });
+
+    hideTyping();
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      addMsg('bot', `⚠️ Error: ${err.detail || 'Something went wrong.'}`);
+      return;
+    }
+
+    const data = await res.json();
+    addMsg('bot', data.reply);
+
+    history.push({ role: 'user',      content: text       });
+    history.push({ role: 'assistant', content: data.reply });
+    if (history.length > 20) history = history.slice(-20);
+
+  } catch (e) {
+    hideTyping();
+    addMsg('bot', `⚠️ Network error: ${e.message}`);
+  } finally {
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+}
+
+/* ── Events ─────────────────────────────────────────────────────────── */
+sendBtn.addEventListener('click', () => send(inputEl.value));
+
+inputEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(inputEl.value); }
+});
+
+inputEl.addEventListener('input', () => {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+});
+
+sugsEl.querySelectorAll('.sug-btn').forEach(btn => {
+  btn.addEventListener('click', () => send(btn.textContent.trim()));
+});
+
+/* ── Init ────────────────────────────────────────────────────────────── */
+loadDestinations();
+
+addMsg('bot',
+  `👋 Hi! I'm your **Travel Cost Assistant**.\n\n` +
+  `Select your **From** city and **To** destination above, then tell me how many **people** and **days** — and I'll calculate:\n\n` +
+  `• 🏨 Hotel cost\n` +
+  `• 🚕 Cab cost\n` +
+  `• 🍽️ Meal cost\n` +
+  `• 💰 **Grand Total**\n\n` +
+  `Try: *"Cost for 5 people, 3 days"*`
+);
+</script>
+</body>
+</html>

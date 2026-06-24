@@ -1,0 +1,23 @@
+# Secrets
+.env
+credentials/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+
+# Uploads (temp files)
+uploads/
+
+# Build
+dist/
+
+# OS
+.DS_Store
