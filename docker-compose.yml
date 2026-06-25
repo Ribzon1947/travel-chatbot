@@ -1,0 +1,16 @@
+services:
+  chatbot:
+    build: .
+    ports:
+      - "8080:8080"   # nginx → public
+    env_file:
+      - .env          # loads GOOGLE_AI_KEY, AGENT_MODEL, ADMIN_PASSWORD
+    environment:
+      DATABASE_URL: sqlite:////data/chatbot.db
+      FHE_DIR: /data/.fhe
+    volumes:
+      - chatbot_data:/data   # persists SQLite DB + Zama FHE circuit/keys across restarts
+    restart: unless-stopped
+
+volumes:
+  chatbot_data:

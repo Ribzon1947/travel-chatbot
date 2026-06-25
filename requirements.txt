@@ -5,3 +5,10 @@ google-genai>=1.0.0
 pydantic>=2.8.0
 pydantic-settings>=2.0.0
 python-dotenv>=1.0.0
+
+# SQL database
+sqlalchemy>=2.0.0
+
+# Encryption
+cryptography>=42.0.0       # AES-256-GCM fallback (all platforms)
+concrete-python>=2.7.0     # Zama FHE — Linux/macOS only (runs inside Docker)

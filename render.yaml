@@ -2,16 +2,21 @@ services:
 
   - type: web
     name: travel-chatbot
-    runtime: python
+    runtime: docker
     region: singapore
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
     envVars:
       - key: GOOGLE_AI_KEY
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      - key: AGENT_MODEL
+        value: gemini-2.5-flash
+      - key: DATABASE_URL
+        value: sqlite:////tmp/chatbot/chatbot.db
+      - key: FHE_DIR
+        value: /tmp/chatbot/.fhe
 
   - type: web
     name: sheets-analyzer

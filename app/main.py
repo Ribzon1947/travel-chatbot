@@ -1,3 +1,6 @@
+from contextlib import asynccontextmanager
+import asyncio
+
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -6,11 +9,23 @@ from fastapi.responses import FileResponse
 from app.config import get_settings
 from app.schemas import ChatRequest, ChatResponse, DestinationPricing, DestinationCreate
 from app.chatbot import chat
-from app.pricing import get_all_destinations, upsert_destination, delete_destination
+from app.pricing import get_all_destinations, upsert_destination, delete_destination, startup
+from app.cache import pricing_cache
+from app.fhe import encryption_mode
 
 settings = get_settings()
 
-app = FastAPI(title="Travel Cost Chatbot API", version="3.0.0")
+
+# ── Lifespan: compile FHE circuit + create DB tables on startup ───────────────
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, startup)  # runs in thread pool so event loop stays free
+    yield
+
+
+app = FastAPI(title="Travel Cost Chatbot API", version="4.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,17 +61,22 @@ async def chat_endpoint(body: ChatRequest):
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "model": settings.agent_model}
+    return {
+        "status": "ok",
+        "model": settings.agent_model,
+        "encryption": encryption_mode(),
+        "cache": pricing_cache.stats(),
+    }
 
 
-# ── Public: list destinations (prices are shown in the chat UI) ──────────────
+# ── Public: list destinations ─────────────────────────────────────────────────
 
 @app.get("/api/destinations")
 async def public_destinations():
     return get_all_destinations()
 
 
-# ── Admin: destination pricing CRUD (password-protected) ─────────────────────
+# ── Admin: destination pricing CRUD ──────────────────────────────────────────
 
 @app.get("/api/admin/destinations", dependencies=[Depends(require_admin)])
 async def list_destinations():
@@ -86,7 +106,20 @@ async def remove_destination(destination: str):
     return {"deleted": destination}
 
 
-# ── Frontend static files (used on Render — serves index.html and admin.html) ─
+# ── Cache management (admin) ──────────────────────────────────────────────────
+
+@app.get("/api/admin/cache/stats", dependencies=[Depends(require_admin)])
+async def cache_stats():
+    return pricing_cache.stats()
+
+
+@app.delete("/api/admin/cache", dependencies=[Depends(require_admin)])
+async def flush_cache():
+    pricing_cache.clear()
+    return {"flushed": True}
+
+
+# ── Frontend static files ─────────────────────────────────────────────────────
 
 @app.get("/admin")
 async def admin_page():
