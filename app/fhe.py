@@ -10,7 +10,6 @@ Fallback: AES-256-GCM (cryptography library) — used automatically on Windows
 import os
 import struct
 import logging
-import pickle
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -93,7 +92,7 @@ def encrypt_value(value: int) -> bytes:
     if _mode == "concrete":
         enc = _circuit.encrypt(value)
         result = _circuit.run(enc)
-        return pickle.dumps(result)
+        return bytes(result.serialize())   # TransportValue native serialization
     if _mode == "aes":
         return _aes_encrypt(value)
     raise RuntimeError("FHE layer not initialised — call compile_circuit() first.")
@@ -102,7 +101,8 @@ def encrypt_value(value: int) -> bytes:
 def decrypt_value(data: bytes) -> int:
     """Decrypt a pricing integer."""
     if _mode == "concrete":
-        result = pickle.loads(data)
+        from mlir._mlir_libs._concretelang._compiler import TransportValue
+        result = TransportValue.deserialize(data)
         return int(_circuit.decrypt(result))
     if _mode == "aes":
         return _aes_decrypt(data)
