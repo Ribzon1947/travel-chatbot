@@ -55,7 +55,9 @@ def compile_circuit() -> str:
             def _identity(x):
                 return x
 
-            inputset = list(range(0, _PRICING_MAX + 1, 250))
+            # Small inputset — covers every realistic pricing value with minimal memory use
+            inputset = [0, 500, 700, 800, 1800, 2000, 2200, 2500, 2800,
+                        3000, 3700, 4000, 4300, 5000, 10000, 50000, 100000]
             logger.info("Compiling Zama FHE circuit — first run, may take 1-2 min…")
             _circuit = _identity.compile(inputset)
             _circuit.save(str(_CIRCUIT_FILE))
