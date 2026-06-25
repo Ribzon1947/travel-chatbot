@@ -3,7 +3,6 @@ Zama FHE encryption layer for pricing data.
 
 Primary:  concrete-python (Zama) — compiles an FHE circuit on startup, then
           encrypts each pricing integer before it is written to the database.
-          Keys are persisted to .fhe/concrete.keys so data survives restarts.
 
 Fallback: AES-256-GCM (cryptography library) — used automatically on Windows
           or any platform where concrete-python is not available.
@@ -16,13 +15,10 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_PRICING_MAX = 100_000          # maximum pricing value in rupees
 _FHE_DIR = Path(os.environ.get("FHE_DIR", str(Path(__file__).parent.parent / ".fhe")))
 _AES_KEY_FILE = _FHE_DIR / "aes.key"
-_CONCRETE_KEY_FILE = _FHE_DIR / "concrete.keys"
-_CIRCUIT_FILE = _FHE_DIR / "circuit"   # cached compiled circuit (avoids recompile on restart)
 
-_circuit = None        # Zama concrete circuit
+_circuit = None
 _aes_key: bytes | None = None
 _mode: str = "none"    # "concrete" | "aes"
 
@@ -39,38 +35,17 @@ def compile_circuit() -> str:
     try:
         from concrete import fhe
 
-        # Fast path: load a pre-compiled circuit saved from the previous run
-        if _CIRCUIT_FILE.exists():
-            try:
-                logger.info("Loading cached Zama FHE circuit from %s…", _CIRCUIT_FILE)
-                _circuit = fhe.Circuit.load(str(_CIRCUIT_FILE))
-                logger.info("Cached circuit loaded — skipping recompilation.")
-            except Exception as load_err:
-                logger.warning("Circuit cache invalid (%s); recompiling…", load_err)
-                _circuit = None
+        @fhe.compiler({"x": "encrypted"})
+        def _identity(x):
+            return x
 
-        # Slow path: compile from scratch (first run, or cache was invalid)
-        if _circuit is None:
-            @fhe.compiler({"x": "encrypted"})
-            def _identity(x):
-                return x
+        # Minimal inputset covering all real pricing values — keeps compilation fast
+        inputset = [0, 500, 700, 800, 1800, 2000, 2200, 2500, 2800,
+                    3000, 3700, 4000, 4300, 5000, 10000, 50000, 100000]
 
-            # Small inputset — covers every realistic pricing value with minimal memory use
-            inputset = [0, 500, 700, 800, 1800, 2000, 2200, 2500, 2800,
-                        3000, 3700, 4000, 4300, 5000, 10000, 50000, 100000]
-            logger.info("Compiling Zama FHE circuit — first run, may take 1-2 min…")
-            _circuit = _identity.compile(inputset)
-            _circuit.save(str(_CIRCUIT_FILE))
-            logger.info("Circuit saved to %s for future restarts.", _CIRCUIT_FILE)
-
-        # Load or generate encryption keys
-        if _CONCRETE_KEY_FILE.exists():
-            logger.info("Loading persisted FHE keys from %s", _CONCRETE_KEY_FILE)
-            _circuit.client.keys.load(str(_CONCRETE_KEY_FILE))
-        else:
-            _circuit.keygen()
-            _circuit.client.keys.save(str(_CONCRETE_KEY_FILE))
-            logger.info("FHE keys generated and saved to %s", _CONCRETE_KEY_FILE)
+        logger.info("Compiling Zama FHE circuit…")
+        _circuit = _identity.compile(inputset)
+        _circuit.keygen()
 
         _mode = "concrete"
         logger.info("Zama FHE ready — mode=concrete")
