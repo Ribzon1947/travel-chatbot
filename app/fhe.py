@@ -101,8 +101,8 @@ def encrypt_value(value: int) -> bytes:
 def decrypt_value(data: bytes) -> int:
     """Decrypt a pricing integer."""
     if _mode == "concrete":
-        from mlir._mlir_libs._concretelang._compiler import TransportValue
-        result = TransportValue.deserialize(data)
+        from concrete.fhe import Value          
+        result = Value.deserialize(data)
         return int(_circuit.decrypt(result))
     if _mode == "aes":
         return _aes_decrypt(data)
