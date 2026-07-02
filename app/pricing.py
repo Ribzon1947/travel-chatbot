@@ -88,7 +88,13 @@ def startup() -> None:
             logger.info("Seeding %d initial destinations…", len(_INITIAL_DATA))
             for name, pricing in _INITIAL_DATA.items():
                 enc = _encrypt_row(pricing)
-                session.add(DestinationRow(name=name, **enc))
+                row = DestinationRow(name=name)
+                row.hotel_cost_enc = enc["hotel_cost_enc"]
+                row.people_per_room_enc = enc["people_per_room_enc"]
+                row.cab_cost_enc = enc["cab_cost_enc"]
+                row.meal_cost_enc = enc["meal_cost_enc"]
+                row.ticket_cost_enc = enc["ticket_cost_enc"]
+                session.add(row)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
