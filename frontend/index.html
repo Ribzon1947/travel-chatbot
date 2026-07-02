@@ -317,6 +317,7 @@
   <div class="pill">👥 Capacity <b id="pill-ppr">2 people / room</b></div>
   <div class="pill">🚕 Cab <b id="pill-cab">₹3,000 / day</b></div>
   <div class="pill">🍽️ Meals <b id="pill-meals">₹700 / person / day</b></div>
+  <div class="pill">🎫 Tickets <b id="pill-ticket">₹2,500 / person</b></div>
 </div>
 
 <div id="chat"></div>
@@ -382,6 +383,7 @@ function updatePills() {
   document.getElementById('pill-ppr').textContent    = `${p.people_per_room} people / room`;
   document.getElementById('pill-cab').textContent    = `₹${p.cab_cost_per_day.toLocaleString()} / day`;
   document.getElementById('pill-meals').textContent  = `₹${p.meal_cost_per_person_per_day.toLocaleString()} / person / day`;
+  document.getElementById('pill-ticket').textContent = `₹${p.ticket_cost_per_person.toLocaleString()} / person`;
 }
 
 toSelect.addEventListener('change', updatePills);

@@ -291,6 +291,10 @@
         <label>Meals (₹/person/day)</label>
         <input type="number" id="add-meals" placeholder="700" min="1" />
       </div>
+      <div class="fg">
+        <label>Tickets (₹/person)</label>
+        <input type="number" id="add-ticket" placeholder="2500" min="1" />
+      </div>
       <div style="padding-bottom:1px">
         <button class="btn btn-primary" onclick="addDestination()">Save</button>
       </div>
@@ -389,6 +393,7 @@ function renderTable(data) {
       <th>People / Room</th>
       <th>Cab (₹/day)</th>
       <th>Meals (₹/person/day)</th>
+      <th>Tickets (₹/person)</th>
       <th>Actions</th>
     </tr></thead>
     <tbody>`;
@@ -404,6 +409,7 @@ function renderTable(data) {
       <td>${p.people_per_room}</td>
       <td>₹${p.cab_cost_per_day.toLocaleString()}</td>
       <td>₹${p.meal_cost_per_person_per_day.toLocaleString()}</td>
+      <td>₹${p.ticket_cost_per_person.toLocaleString()}</td>
       <td>
         <div class="actions">
           <button class="btn btn-secondary" onclick='startEdit(${JSON.stringify(name)}, ${JSON.stringify(p)})'>Edit</button>
@@ -433,6 +439,7 @@ function startEdit(name, pricing) {
     <td><input type="number" id="e-ppr"   value="${pricing.people_per_room}"                min="1" /></td>
     <td><input type="number" id="e-cab"   value="${pricing.cab_cost_per_day}"               min="1" /></td>
     <td><input type="number" id="e-meals" value="${pricing.meal_cost_per_person_per_day}"   min="1" /></td>
+    <td><input type="number" id="e-ticket" value="${pricing.ticket_cost_per_person}"       min="1" /></td>
     <td>
       <div class="actions">
         <button class="btn btn-success"   onclick='saveEdit(${JSON.stringify(name)})'>Save</button>
@@ -449,6 +456,7 @@ async function saveEdit(name) {
     people_per_room:               parseInt(document.getElementById('e-ppr').value),
     cab_cost_per_day:              parseInt(document.getElementById('e-cab').value),
     meal_cost_per_person_per_day:  parseInt(document.getElementById('e-meals').value),
+    ticket_cost_per_person:        parseInt(document.getElementById('e-ticket').value),
   };
   if (Object.values(pricing).some(v => isNaN(v) || v < 1)) {
     showToast('All values must be positive numbers', 'error'); return;
@@ -467,14 +475,15 @@ async function saveEdit(name) {
 
 /* ── Add ─────────────────────────────────────────────────────────── */
 async function addDestination() {
-  const name  = document.getElementById('add-name').value.trim();
-  const hotel = parseInt(document.getElementById('add-hotel').value);
-  const ppr   = parseInt(document.getElementById('add-ppr').value);
-  const cab   = parseInt(document.getElementById('add-cab').value);
-  const meals = parseInt(document.getElementById('add-meals').value);
+  const name   = document.getElementById('add-name').value.trim();
+  const hotel  = parseInt(document.getElementById('add-hotel').value);
+  const ppr    = parseInt(document.getElementById('add-ppr').value);
+  const cab    = parseInt(document.getElementById('add-cab').value);
+  const meals  = parseInt(document.getElementById('add-meals').value);
+  const ticket = parseInt(document.getElementById('add-ticket').value);
 
-  if (!name)                                           { showToast('Destination name is required', 'error'); return; }
-  if ([hotel,ppr,cab,meals].some(v => isNaN(v)||v<1)) { showToast('All pricing values must be positive', 'error'); return; }
+  if (!name)                                                      { showToast('Destination name is required', 'error'); return; }
+  if ([hotel,ppr,cab,meals,ticket].some(v => isNaN(v)||v<1))      { showToast('All pricing values must be positive', 'error'); return; }
 
   try {
     const res = await fetch(`${BACKEND}/api/admin/destinations`, {
@@ -485,12 +494,13 @@ async function addDestination() {
         people_per_room: ppr,
         cab_cost_per_day: cab,
         meal_cost_per_person_per_day: meals,
+        ticket_cost_per_person: ticket,
       }}),
     });
     if (res.status === 401) { showLoginOverlay('Session expired. Please sign in again.'); return; }
     if (res.ok) {
       showToast(`${name} saved`, 'success');
-      ['add-name','add-hotel','add-ppr','add-cab','add-meals'].forEach(id => document.getElementById(id).value = '');
+      ['add-name','add-hotel','add-ppr','add-cab','add-meals','add-ticket'].forEach(id => document.getElementById(id).value = '');
       loadDestinations();
     } else { const e = await res.json().catch(()=>({})); showToast(e.detail || 'Save failed', 'error'); }
   } catch (e) { showToast('Network error', 'error'); }

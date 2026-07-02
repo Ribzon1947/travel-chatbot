@@ -4,7 +4,8 @@ from google import genai
 from google.genai import types
 
 from app.config import get_settings
-from app.pricing import calculate_trip_cost, compare_destinations, get_destination_pricing
+# 1. ADDED calculate_multi_city_trip TO IMPORTS
+from app.pricing import calculate_trip_cost, compare_destinations, get_destination_pricing, calculate_multi_city_trip
 
 _TOOL = types.Tool(function_declarations=[
     types.FunctionDeclaration(
@@ -86,6 +87,7 @@ Fixed Pricing for {to_loc}:
 - Room capacity: {p['people_per_room']} people per room (always round UP for odd numbers)
 - Cab: Rs {p['cab_cost_per_day']:,} per day (shared by whole group)
 - Meals: Rs {p['meal_cost_per_person_per_day']} per person per day
+- Tickets: Rs {p['ticket_cost_per_person']:,} per person
 
 Billing rules for hotel and meals:
 - Days == Nights (or only days given): each day/night counts as ONE full night — full rate applies.
@@ -103,6 +105,7 @@ Rooms needed: X
 Hotel cost: Rs Z
 Cab cost: Rs Z
 Meal cost: Rs Z
+Ticket cost: Rs Z
 Grand Total: Rs Z
 
 - Show a comparison answer in EXACTLY this format — a markdown table with destinations as columns (cheapest destination first/leftmost), then a Cheapest line:
@@ -115,9 +118,19 @@ Comparison: X people, Y days
 | Hotel cost   | Rs Z         | Rs Z         |
 | Cab cost     | Rs Z         | Rs Z         |
 | Meal cost    | Rs Z         | Rs Z         |
+| Ticket cost  | Rs Z         | Rs Z         |
 | Total        | Rs Z         | Rs Z         |
 
 Cheapest: A at Rs Z
+
+- Show a multi-city answer in EXACTLY this format — nothing else:
+
+Multi-City Trip: X destinations, Y total days
+Hotel total: Rs Z
+Cab total: Rs Z
+Meals total: Rs Z
+Ticket total: Rs Z
+Grand Total: Rs Z
 
 OUTPUT RULES — strictly enforced:
 - Do NOT add any parentheses, brackets, or extra text after any line.
@@ -180,6 +193,9 @@ def _sync_chat(message: str, history: list[dict], from_loc: str, to_loc: str) ->
                     result = calculate_trip_cost(**fc.args, destination=to_loc)
                 elif fc.name == "compare_destinations":
                     result = {"comparisons": compare_destinations(**fc.args)}
+                # 3. ADDED THE NEW ELIF BLOCK TO EXECUTE THE TOOL
+                elif fc.name == "calculate_multi_city_trip":
+                    result = calculate_multi_city_trip(**fc.args)
                 else:
                     result = {"error": f"Unknown function: {fc.name}"}
             except (TypeError, ValueError, KeyError) as e:
