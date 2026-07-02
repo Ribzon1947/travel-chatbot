@@ -22,6 +22,7 @@ class DestinationPricing(BaseModel):
     people_per_room: int
     cab_cost_per_day: int
     meal_cost_per_person_per_day: int
+    ticket_cost_per_person: int
 
 
 class DestinationCreate(BaseModel):

@@ -30,6 +30,7 @@ class DestinationRow(Base):
     people_per_room_enc = Column(LargeBinary, nullable=False)
     cab_cost_enc        = Column(LargeBinary, nullable=False)
     meal_cost_enc       = Column(LargeBinary, nullable=False)
+    ticket_cost_enc     = Column(LargeBinary, nullable=False)
     updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

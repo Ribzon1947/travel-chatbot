@@ -3,42 +3,50 @@
     "hotel_cost_per_room_per_night": 2000,
     "people_per_room": 2,
     "cab_cost_per_day": 3000,
-    "meal_cost_per_person_per_day": 700
+    "meal_cost_per_person_per_day": 700,
+    "ticket_cost_per_person": 2500
   },
   "Goa": {
     "hotel_cost_per_room_per_night": 3000,
     "people_per_room": 2,
     "cab_cost_per_day": 4000,
-    "meal_cost_per_person_per_day": 800
+    "meal_cost_per_person_per_day": 800,
+    "ticket_cost_per_person": 2500
   },
   "Manali": {
     "hotel_cost_per_room_per_night": 2500,
     "people_per_room": 2,
     "cab_cost_per_day": 5000,
-    "meal_cost_per_person_per_day": 600
+    "meal_cost_per_person_per_day": 600,
+    "ticket_cost_per_person": 2500
   },
   "Shimla": {
     "hotel_cost_per_room_per_night": 2200,
     "people_per_room": 2,
     "cab_cost_per_day": 4300,
-    "meal_cost_per_person_per_day": 650
+    "meal_cost_per_person_per_day": 650,
+    "ticket_cost_per_person": 2500
   },
   "Jaipur": {
     "hotel_cost_per_room_per_night": 1800,
     "people_per_room": 2,
     "cab_cost_per_day": 3000,
-    "meal_cost_per_person_per_day": 600
+    "meal_cost_per_person_per_day": 600,
+    "ticket_cost_per_person": 2500
   },
   "Kerala": {
     "hotel_cost_per_room_per_night": 2800,
     "people_per_room": 2,
     "cab_cost_per_day": 3700,
-    "meal_cost_per_person_per_day": 750
+    "meal_cost_per_person_per_day": 750,
+    "ticket_cost_per_person": 2500
   },
   "Latvaria": {
     "hotel_cost_per_room_per_night": 15000,
     "people_per_room": 1,
     "cab_cost_per_day": 3300,
-    "meal_cost_per_person_per_day": 5000
+    "meal_cost_per_person_per_day": 5000,
+    "ticket_cost_per_person": 2500
   }
+  
 }
