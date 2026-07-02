@@ -7,6 +7,7 @@ const PEOPLE_PER_ROOM               = 2;
 const CAB_COST_FOR_3_DAYS           = 10000;
 const MEAL_COST_PER_PERSON_PER_DAY  = 700;
 const CAB_COST_PER_DAY              = CAB_COST_FOR_3_DAYS / 3;
+const TICKET_COST_PER_PERSON        = 2500;
 
 function calculateTripCost({ num_people, num_days, num_nights }) {
   const nights       = num_nights ?? num_days;
@@ -14,6 +15,7 @@ function calculateTripCost({ num_people, num_days, num_nights }) {
   const hotelTotal   = rooms * HOTEL_COST_PER_ROOM_PER_NIGHT * nights;
   const cabTotal     = Math.round(CAB_COST_PER_DAY * num_days);
   const mealsTotal   = MEAL_COST_PER_PERSON_PER_DAY * num_people * num_days;
+  const ticketTotal  = Math.ceil(num_people * 2500);
   const grandTotal   = hotelTotal + cabTotal + mealsTotal;
 
   return {
@@ -24,6 +26,7 @@ function calculateTripCost({ num_people, num_days, num_nights }) {
     hotel_total:   hotelTotal,
     cab_total:     cabTotal,
     meals_total:   mealsTotal,
+    ticket_total:  ticketTotal,
     grand_total:   grandTotal,
   };
 }
@@ -35,6 +38,7 @@ Fixed Pricing:
 - Room capacity: ${PEOPLE_PER_ROOM} people per room (always round UP for odd numbers)
 - Cab: Rs ${CAB_COST_FOR_3_DAYS.toLocaleString()} for 3 days = Rs ${Math.round(CAB_COST_PER_DAY).toLocaleString()} per day (shared by whole group)
 - Meals: Rs ${MEAL_COST_PER_PERSON_PER_DAY} per person per day
+- Tickets: Rs ${TICKET_COST_PER_PERSON} per person
 
 Instructions:
 - When the user mentions number of people and number of days/nights, ALWAYS call the calculate_trip_cost tool immediately — no follow-up questions needed.
