@@ -93,6 +93,10 @@ def _aes_decrypt(data: bytes) -> int:
 
 def encrypt_value(value: int) -> bytes:
     """Encrypt a pricing integer. Uses Zama FHE if available, else AES-GCM."""
+    # Ensure the FHE/AES layer is initialized (lazy init if startup wasn't run)
+    if _mode == "none":
+        compile_circuit()
+
     if _mode == "concrete":
         enc = _circuit.encrypt(value)
         result = _circuit.run(enc)
@@ -104,6 +108,10 @@ def encrypt_value(value: int) -> bytes:
 
 def decrypt_value(data: bytes) -> int:
     """Decrypt a pricing integer."""
+    # Ensure the FHE/AES layer is initialized (lazy init if startup wasn't run)
+    if _mode == "none":
+        compile_circuit()
+
     if _mode == "concrete":
         from concrete.fhe import Value          
         result = Value.deserialize(data)
