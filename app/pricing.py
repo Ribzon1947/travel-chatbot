@@ -50,6 +50,8 @@ _INITIAL_DATA: dict[str, dict] = {
 
 @contextmanager
 def _db():
+    # Ensure database tables exist before opening a session (lazy init)
+    init_db()
     session = SessionLocal()
     try:
         yield session
@@ -59,6 +61,7 @@ def _db():
         raise
     finally:
         session.close()
+
 
 
 def _encrypt_row(pricing: dict) -> dict:
