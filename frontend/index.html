@@ -358,7 +358,11 @@ let allPricing = {};
 /* ── Load destinations ───────────────────────────────────────────── */
 async function loadDestinations() {
   try {
-    const res = await fetch(`${BACKEND}/api/destinations`);
+    const params = new URLSearchParams();
+    if (fromInput.value.trim()) {
+      params.set('origin', fromInput.value.trim());
+    }
+    const res = await fetch(`${BACKEND}/api/destinations?${params.toString()}`);
     if (!res.ok) return;
     allPricing = await res.json();
 
@@ -387,6 +391,7 @@ function updatePills() {
 }
 
 toSelect.addEventListener('change', updatePills);
+fromInput.addEventListener('input', loadDestinations);
 
 /* ── Text → HTML renderer ─────────────────────────────────────────── */
 function renderMarkdown(raw) {

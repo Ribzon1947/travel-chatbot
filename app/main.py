@@ -72,8 +72,8 @@ async def health():
 # ── Public: list destinations ─────────────────────────────────────────────────
 
 @app.get("/api/destinations")
-async def public_destinations():
-    return get_all_destinations()
+async def public_destinations(origin: str | None = None):
+    return get_all_destinations(origin)
 
 
 # ── Admin: destination pricing CRUD ──────────────────────────────────────────

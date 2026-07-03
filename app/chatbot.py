@@ -4,19 +4,26 @@ from google import genai
 from google.genai import types
 
 from app.config import get_settings
-# 1. ADDED calculate_multi_city_trip TO IMPORTS
 from app.pricing import calculate_trip_cost, compare_destinations, get_destination_pricing, calculate_multi_city_trip
 
 _TOOL = types.Tool(function_declarations=[
     types.FunctionDeclaration(
         name="calculate_trip_cost",
         description=(
-            "Calculate the complete trip cost breakdown for the given number of people and days. "
+            "Calculate the complete trip cost breakdown for the given origin, destination, number of people, and days. "
             "Always call this before giving any cost figures."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
             properties={
+                "from_location": types.Schema(
+                    type=types.Type.STRING,
+                    description="Origin place or city for the route.",
+                ),
+                "destination": types.Schema(
+                    type=types.Type.STRING,
+                    description="Destination place or city.",
+                ),
                 "num_people": types.Schema(
                     type=types.Type.INTEGER,
                     description="Total number of people travelling (minimum 1)",
@@ -36,18 +43,22 @@ _TOOL = types.Tool(function_declarations=[
                     ),
                 ),
             },
-            required=["num_people", "num_days"],
+            required=["num_people", "num_days", "destination"],
         ),
     ),
     types.FunctionDeclaration(
         name="compare_destinations",
         description=(
-            "Compare trip costs across multiple destinations for the same group size and duration. "
+            "Compare trip costs across multiple destinations from a given origin for the same group size and duration. "
             "Call this when the user asks to compare two or more destinations."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
             properties={
+                "from_location": types.Schema(
+                    type=types.Type.STRING,
+                    description="Origin place or city for the comparison.",
+                ),
                 "destinations": types.Schema(
                     type=types.Type.ARRAY,
                     items=types.Schema(type=types.Type.STRING),
@@ -97,7 +108,7 @@ Billing rules for hotel and meals:
 Instructions:
 - When the user mentions number of people and days (and optionally nights), ALWAYS call the calculate_trip_cost tool immediately — no follow-up questions needed.
 - Pass num_nights to the tool whenever the user mentions nights separately from days.
-- When the user asks to compare destinations, call compare_destinations with all mentioned destination names, the people count, and the days count.
+- When the user asks to compare destinations, call compare_destinations with all mentioned destination names, the people count, the days count, and the origin.
 - Show a single-destination answer in EXACTLY this format — nothing else:
 
 Destination: {to_loc}

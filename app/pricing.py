@@ -9,12 +9,13 @@ import logging
 from contextlib import contextmanager
 from typing import cast
 
-from app.database import SessionLocal, DestinationRow, init_db
+from app.database import SessionLocal, Place, Destination, RoutePricing, init_db
 from app.fhe import compile_circuit, encrypt_value, decrypt_value, encryption_mode
 from app.cache import pricing_cache
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_PLACE = "Default"
 _DEFAULT_PRICING = {
     "hotel_cost_per_room_per_night": 2000,
     "people_per_room": 2,
@@ -23,6 +24,16 @@ _DEFAULT_PRICING = {
     "ticket_cost_per_person": 2500,
 }
 
+_PLACE_NAMES = [
+    "Default",
+    "Goa",
+    "Manali",
+    "Shimla",
+    "Jaipur",
+    "Kerala",
+    "Latvaria",
+]
+
 _INITIAL_DATA: dict[str, dict] = {
     "Default": dict(_DEFAULT_PRICING),
     "Goa":    {"hotel_cost_per_room_per_night": 3000, "people_per_room": 2, "cab_cost_per_day": 4000, "meal_cost_per_person_per_day": 800, "ticket_cost_per_person": 2500},
@@ -30,6 +41,7 @@ _INITIAL_DATA: dict[str, dict] = {
     "Shimla": {"hotel_cost_per_room_per_night": 2200, "people_per_room": 2, "cab_cost_per_day": 4300, "meal_cost_per_person_per_day": 650, "ticket_cost_per_person": 2500},
     "Jaipur": {"hotel_cost_per_room_per_night": 1800, "people_per_room": 2, "cab_cost_per_day": 3000, "meal_cost_per_person_per_day": 600, "ticket_cost_per_person": 2500},
     "Kerala": {"hotel_cost_per_room_per_night": 2800, "people_per_room": 2, "cab_cost_per_day": 3700, "meal_cost_per_person_per_day": 750, "ticket_cost_per_person": 2500},
+    "Latvaria": {"hotel_cost_per_room_per_night": 15000, "people_per_room": 1, "cab_cost_per_day": 3300, "meal_cost_per_person_per_day": 5000, "ticket_cost_per_person": 2500},
 }
 
 
@@ -58,7 +70,7 @@ def _encrypt_row(pricing: dict) -> dict:
     }
 
 
-def _decrypt_row(row: DestinationRow) -> dict:
+def _decrypt_route(row: RoutePricing) -> dict:
     return {
         "hotel_cost_per_room_per_night": decrypt_value(cast(bytes, row.hotel_cost_enc)),
         "people_per_room":               decrypt_value(cast(bytes, row.people_per_room_enc)),
@@ -68,14 +80,84 @@ def _decrypt_row(row: DestinationRow) -> dict:
     }
 
 
+def _find_by_name(session, model, name: str):
+    if not name:
+        return None
+    row = session.query(model).filter(model.name == name).first()
+    if row is not None:
+        return row
+    lower_name = name.lower()
+    return next(
+        (r for r in session.query(model).all() if r.name.lower() == lower_name),
+        None,
+    )
+
+
+def _get_or_create_place(session, name: str) -> Place:
+    place = _find_by_name(session, Place, name)
+    if place is None:
+        place = Place(name=name or _DEFAULT_PLACE)
+        session.add(place)
+        session.flush()
+    return place
+
+
+def _get_or_create_destination(session, name: str) -> Destination:
+    dest = _find_by_name(session, Destination, name)
+    if dest is None:
+        dest = Destination(name=name or "Default")
+        session.add(dest)
+        session.flush()
+    return dest
+
+
+def _get_route(session, origin: str, destination: str) -> RoutePricing | None:
+    place = _find_by_name(session, Place, origin) or _find_by_name(session, Place, _DEFAULT_PLACE)
+    dest = _find_by_name(session, Destination, destination) or _find_by_name(session, Destination, "Default")
+    if place is None or dest is None:
+        return None
+    route = (
+        session.query(RoutePricing)
+        .filter(RoutePricing.place_id == place.id, RoutePricing.destination_id == dest.id)
+        .first()
+    )
+    if route is not None:
+        return route
+
+    default_place = _find_by_name(session, Place, _DEFAULT_PLACE)
+    if default_place is None:
+        return None
+    return (
+        session.query(RoutePricing)
+        .filter(RoutePricing.place_id == default_place.id, RoutePricing.destination_id == dest.id)
+        .first()
+    )
+
+
+def _seed_route(session, origin: str, destination: str, pricing: dict) -> RoutePricing:
+    place = _get_or_create_place(session, origin)
+    dest = _get_or_create_destination(session, destination)
+    route = (
+        session.query(RoutePricing)
+        .filter(RoutePricing.place_id == place.id, RoutePricing.destination_id == dest.id)
+        .first()
+    )
+    if route is None:
+        route = RoutePricing(place=place, destination=dest)
+        session.add(route)
+    for field, value in _encrypt_row(pricing).items():
+        setattr(route, field, value)
+    return route
+
+
 # ── Startup ───────────────────────────────────────────────────────────────────
 
 def startup() -> None:
     """
     Called once when the app starts:
     1. Compile the Zama FHE circuit (self-compile).
-    2. Create DB tables if they do not exist.
-    3. Seed initial destination data if the table is empty.
+    2. Create DB tables if they do not yet exist.
+    3. Seed relational route pricing data.
     """
     mode = compile_circuit()
     logger.info("Encryption mode: %s", mode)
@@ -84,81 +166,73 @@ def startup() -> None:
     logger.info("Database tables ready.")
 
     with _db() as session:
-        if session.query(DestinationRow).count() == 0:
-            logger.info("Seeding %d initial destinations…", len(_INITIAL_DATA))
-            for name, pricing in _INITIAL_DATA.items():
-                enc = _encrypt_row(pricing)
-                row = DestinationRow(name=name)
-                row.hotel_cost_enc = enc["hotel_cost_enc"]
-                row.people_per_room_enc = enc["people_per_room_enc"]
-                row.cab_cost_enc = enc["cab_cost_enc"]
-                row.meal_cost_enc = enc["meal_cost_enc"]
-                row.ticket_cost_enc = enc["ticket_cost_enc"]
-                session.add(row)
+        if session.query(RoutePricing).count() == 0:
+            logger.info("Seeding places, destinations, and route pricing…")
+            for place in _PLACE_NAMES:
+                for destination, pricing in _INITIAL_DATA.items():
+                    _seed_route(session, place, destination, pricing)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def get_all_destinations() -> dict:
-    cached = pricing_cache.get("__all__")
-    if cached is not None:
-        return cached
-
-    with _db() as session:
-        rows = session.query(DestinationRow).order_by(DestinationRow.name).all()
-        result = {row.name: _decrypt_row(row) for row in rows}
-
-    pricing_cache.set("__all__", result)
-    return result
-
-
-def get_destination_pricing(destination: str) -> dict:
-    cache_key = f"dest:{destination}"
+def get_all_destinations(origin: str | None = None) -> dict:
+    cache_key = f"destinations:{origin or _DEFAULT_PLACE}"
     cached = pricing_cache.get(cache_key)
     if cached is not None:
         return cached
 
     with _db() as session:
-        row = (
-            session.query(DestinationRow)
-            .filter(DestinationRow.name == destination)
-            .first()
+        origin_name = origin or _DEFAULT_PLACE
+        place = _find_by_name(session, Place, origin_name) or _get_or_create_place(session, _DEFAULT_PLACE)
+        rows = (
+            session.query(RoutePricing)
+            .join(Destination)
+            .filter(RoutePricing.place_id == place.id)
+            .order_by(Destination.name)
+            .all()
         )
-        if row is None:
-            # Case-insensitive fallback
-            row = next(
-                (r for r in session.query(DestinationRow).all()
-                 if r.name.lower() == destination.lower()),
-                None,
-            )
-        pricing = _decrypt_row(row) if row else _get_default(session)
+        result = {row.destination.name: _decrypt_route(row) for row in rows}
+
+    pricing_cache.set(cache_key, result)
+    return result
+
+
+def get_route_pricing(origin: str, destination: str) -> dict:
+    cache_key = f"route:{origin or _DEFAULT_PLACE}:{destination}"
+    cached = pricing_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    with _db() as session:
+        route = _get_route(session, origin, destination)
+        pricing = _decrypt_route(route) if route else _DEFAULT_PRICING
 
     pricing_cache.set(cache_key, pricing)
     return pricing
 
 
-def _get_default(session) -> dict:
-    row = session.query(DestinationRow).filter(DestinationRow.name == "Default").first()
-    return _decrypt_row(row) if row else _DEFAULT_PRICING
+def get_destination_pricing(destination: str) -> dict:
+    return get_route_pricing(_DEFAULT_PLACE, destination)
 
 
 def upsert_destination(destination: str, pricing: dict) -> dict:
     enc = _encrypt_row(pricing)
 
     with _db() as session:
-        row = (
-            session.query(DestinationRow)
-            .filter(DestinationRow.name == destination)
+        dest = _get_or_create_destination(session, destination)
+        place = _get_or_create_place(session, _DEFAULT_PLACE)
+        route = (
+            session.query(RoutePricing)
+            .filter(RoutePricing.place_id == place.id, RoutePricing.destination_id == dest.id)
             .first()
         )
-        if row is None:
-            row = DestinationRow(name=destination)
-            session.add(row)
+        if route is None:
+            route = RoutePricing(place=place, destination=dest)
+            session.add(route)
         for field, value in enc.items():
-            setattr(row, field, value)
+            setattr(route, field, value)
 
-    pricing_cache.invalidate(f"dest:{destination}")
-    pricing_cache.invalidate("__all__")
+    pricing_cache.clear()
     return pricing
 
 
@@ -168,16 +242,15 @@ def delete_destination(destination: str) -> bool:
 
     with _db() as session:
         row = (
-            session.query(DestinationRow)
-            .filter(DestinationRow.name == destination)
+            session.query(Destination)
+            .filter(Destination.name == destination)
             .first()
         )
         if row is None:
             return False
         session.delete(row)
 
-    pricing_cache.invalidate(f"dest:{destination}")
-    pricing_cache.invalidate("__all__")
+    pricing_cache.clear()
     return True
 
 
@@ -188,9 +261,10 @@ def compare_destinations(
     num_people: int,
     num_days: int,
     num_nights: int | None = None,
+    from_location: str = _DEFAULT_PLACE,
 ) -> list[dict]:
     results = [
-        calculate_trip_cost(num_people, num_days, dest, num_nights)
+        calculate_trip_cost(num_people, num_days, dest, from_location, num_nights)
         for dest in destinations
     ]
     results.sort(key=lambda x: x["grand_total"])
@@ -201,9 +275,10 @@ def calculate_trip_cost(
     num_people: int,
     num_days: int,
     destination: str = "Default",
+    from_location: str = _DEFAULT_PLACE,
     num_nights: int | None = None,
 ) -> dict:
-    p = get_destination_pricing(destination)
+    p = get_route_pricing(from_location, destination)
     rooms = math.ceil(num_people / p["people_per_room"])
 
     if num_nights is None or num_days == num_nights:
@@ -218,6 +293,7 @@ def calculate_trip_cost(
     tickets = p["ticket_cost_per_person"] * num_people
 
     return {
+        "origin":        from_location,
         "destination":   destination,
         "num_people":    num_people,
         "num_days":      num_days,
@@ -251,7 +327,7 @@ def calculate_multi_city_trip(
         nights = leg.get("nights", days)
 
         # Reuse your existing single-leg calculator for consistency
-        leg_cost = calculate_trip_cost(num_people, days, dest, nights)
+        leg_cost = calculate_trip_cost(num_people, days, dest, _DEFAULT_PLACE, nights)
         
         # Aggregate totals
         total_hotel += leg_cost["hotel_total"]
