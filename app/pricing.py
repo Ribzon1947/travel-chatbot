@@ -52,6 +52,21 @@ _INITIAL_DATA: dict[str, dict] = {
 def _db():
     # Ensure database tables exist before opening a session (lazy init)
     init_db()
+    # Seed initial pricing data if the tables are empty (first run)
+    tmp = SessionLocal()
+    try:
+        if tmp.query(RoutePricing).count() == 0:
+            logger.info("Seeding initial pricing data into DB (first-run)")
+            for place in _PLACE_NAMES:
+                for destination, pricing in _INITIAL_DATA.items():
+                    _seed_route(tmp, place, destination, pricing)
+            tmp.commit()
+    except Exception:
+        tmp.rollback()
+        raise
+    finally:
+        tmp.close()
+
     session = SessionLocal()
     try:
         yield session
