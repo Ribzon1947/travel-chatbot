@@ -71,7 +71,7 @@ _TOOL = types.Tool(function_declarations=[
                 ),
                 "num_people": types.Schema(
                     type=types.Type.INTEGER,
-                    description="Total number of people travelling (minimum 1)",
+                    description="Total number of adults and children 7+ travelling",
                 ),
                 "num_days": types.Schema(
                     type=types.Type.INTEGER,
@@ -83,8 +83,55 @@ _TOOL = types.Tool(function_declarations=[
                         "Total number of nights. Omit if nights were not mentioned by the user."
                     ),
                 ),
+                "kids_under_7": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="Number of kids under 7 years old. Omit if none.",
+                ),
             },
             required=["destinations", "num_people", "num_days"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="calculate_multi_city_trip",
+        description=(
+            "Calculate trip cost across multiple destinations in sequence (e.g., Goa → Manali → Shimla). "
+            "Kids under 7 are included in rooms and meals but do NOT pay for tickets."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "num_people": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="Total number of adults and children 7+ travelling",
+                ),
+                "itinerary": types.Schema(
+                    type=types.Type.ARRAY,
+                    items=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "destination": types.Schema(
+                                type=types.Type.STRING,
+                                description="Destination name",
+                            ),
+                            "days": types.Schema(
+                                type=types.Type.INTEGER,
+                                description="Number of days at this destination",
+                            ),
+                            "nights": types.Schema(
+                                type=types.Type.INTEGER,
+                                description="Number of nights at this destination (optional, defaults to days)",
+                            ),
+                        },
+                        required=["destination", "days"],
+                    ),
+                    description="List of destinations with days/nights: [{'destination': 'Goa', 'days': 3, 'nights': 2}, ...]",
+                ),
+                "kids_under_7": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="Number of kids under 7 years old. Omit if none.",
+                ),
+            },
+            required=["num_people", "itinerary"],
         ),
     ),
 ])
@@ -115,7 +162,8 @@ Instructions:
 - When the user mentions number of people and days (and optionally nights), ALWAYS call the calculate_trip_cost tool immediately — no follow-up questions needed.
 - If the user mentions kids under 7, pass kids_under_7 to the tool.
 - Pass num_nights to the tool whenever the user mentions nights separately from days.
-- When the user asks to compare destinations, call compare_destinations with all mentioned destination names, the people count, the days count, and the origin.
+- When the user asks to compare destinations, call compare_destinations with all mentioned destination names, the people count, the days count, and the origin. Include kids_under_7 if mentioned.
+- When the user plans a MULTI-DESTINATION itinerary (e.g., "Goa for 3 days, then Manali for 2 days, then Shimla for 2 days"), call calculate_multi_city_trip with the full itinerary array.
 - Show a single-destination answer in EXACTLY this format — nothing else:
 
 Destination: {to_loc}
@@ -126,6 +174,18 @@ Hotel cost: Rs Z
 Cab cost: Rs Z
 Meal cost: Rs Z
 Ticket cost: Rs Z
+Grand Total: Rs Z
+
+- Show a multi-city answer in EXACTLY this format — nothing else:
+
+Multi-City Trip: X destinations, Y total days
+Adults/Children 7+: X
+Kids under 7: X (included in rooms & meals, no ticket charge)
+Hotel total: Rs Z
+Cab total: Rs Z
+Meals total: Rs Z
+Ticket total: Rs Z
+Grand Total: Rs Z
 Grand Total: Rs Z
 
 - Show a comparison answer in EXACTLY this format — a markdown table with destinations as columns (cheapest destination first/leftmost), then a Cheapest line:
@@ -213,6 +273,8 @@ def _sync_chat(message: str, history: list[dict], from_loc: str, to_loc: str) ->
                     result = calculate_trip_cost(**fc.args, destination=to_loc)
                 elif fc.name == "compare_destinations":
                     result = {"comparisons": compare_destinations(**fc.args)}
+                elif fc.name == "calculate_multi_city_trip":
+                    result = calculate_multi_city_trip(**fc.args)
                 # 3. ADDED THE NEW ELIF BLOCK TO EXECUTE THE TOOL
                 elif fc.name == "calculate_multi_city_trip":
                     result = calculate_multi_city_trip(**fc.args)

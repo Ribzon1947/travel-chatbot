@@ -357,25 +357,33 @@ def calculate_trip_cost(
 
 def calculate_multi_city_trip(
     num_people: int,
-    itinerary: list[dict]
+    itinerary: list[dict],
+    kids_under_7: int = 0,
 ) -> dict:
     """
+    Calculate costs for a multi-destination trip.
     itinerary format: [{"destination": "Goa", "days": 3, "nights": 3}, ...]
+    Kids under 7 are included in all legs but do NOT pay for tickets.
     """
     grand_total = 0
     total_hotel = 0
     total_cab = 0
     total_meals = 0
     total_tickets = 0
+    total_days = 0
     breakdown = []
 
     for leg in itinerary:
         dest = leg.get("destination", "Default")
         days = leg.get("days", 1)
         nights = leg.get("nights", days)
+        total_days += days
 
         # Reuse your existing single-leg calculator for consistency
-        leg_cost = calculate_trip_cost(num_people, days, dest, _DEFAULT_PLACE, nights)
+        # Pass kids_under_7 to each leg
+        leg_cost = calculate_trip_cost(
+            num_people, days, dest, _DEFAULT_PLACE, nights, kids_under_7
+        )
         
         # Aggregate totals
         total_hotel += leg_cost["hotel_total"]
@@ -388,12 +396,14 @@ def calculate_multi_city_trip(
 
     return {
         "num_people": num_people,
+        "kids_under_7": kids_under_7,
+        "total_people": num_people + kids_under_7,
         "total_destinations": len(itinerary),
-        "total_days": sum(leg.get("days", 0) for leg in itinerary),
-        "hotel_total": total_hotel,
-        "cab_total": total_cab,
-        "meals_total": total_meals,
-        "ticket_total": total_tickets,
-        "grand_total": grand_total,
+        "total_days": total_days,
+        "hotel_total": round(total_hotel),
+        "cab_total": round(total_cab),
+        "meals_total": round(total_meals),
+        "ticket_total": round(total_tickets),
+        "grand_total": round(grand_total),
         "breakdown": breakdown
     }
