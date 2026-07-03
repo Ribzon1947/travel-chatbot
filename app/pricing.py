@@ -9,7 +9,8 @@ import logging
 from contextlib import contextmanager
 from typing import cast
 
-from app.database import SessionLocal, Place, Destination, RoutePricing, init_db
+from app.database import SessionLocal, init_db
+from app.models import Place, Destination, RoutePricing
 from app.fhe import compile_circuit, encrypt_value, decrypt_value, encryption_mode
 from app.cache import pricing_cache
 
