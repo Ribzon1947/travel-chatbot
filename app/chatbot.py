@@ -11,6 +11,7 @@ _TOOL = types.Tool(function_declarations=[
         name="calculate_trip_cost",
         description=(
             "Calculate the complete trip cost breakdown for the given origin, destination, number of people, and days. "
+            "Kids under 7 are included in rooms and meals but DO NOT pay for tickets. "
             "Always call this before giving any cost figures."
         ),
         parameters=types.Schema(
@@ -26,7 +27,7 @@ _TOOL = types.Tool(function_declarations=[
                 ),
                 "num_people": types.Schema(
                     type=types.Type.INTEGER,
-                    description="Total number of people travelling (minimum 1)",
+                    description="Total number of adults and children 7+ (those who pay for tickets)",
                 ),
                 "num_days": types.Schema(
                     type=types.Type.INTEGER,
@@ -41,6 +42,10 @@ _TOOL = types.Tool(function_declarations=[
                         "and the remaining day(s) are charged at half rate for hotel and meals. "
                         "Omit only if nights were not mentioned by the user."
                     ),
+                ),
+                "kids_under_7": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="Number of kids under 7 years old. They are included in room and meal costs but DO NOT pay for tickets.",
                 ),
             },
             required=["num_people", "num_days", "destination"],
@@ -104,14 +109,18 @@ Billing rules for hotel and meals:
 - Days == Nights (or only days given): each day/night counts as ONE full night — full rate applies.
 - Days > Nights: each day+night pair = 1 whole charge; remaining day(s) = HALF rate for hotel and meals.
 - Cab cost is always charged per calendar day regardless of nights.
+- Kids under 7: included in rooms and meals BUT do NOT pay for tickets.
 
 Instructions:
 - When the user mentions number of people and days (and optionally nights), ALWAYS call the calculate_trip_cost tool immediately — no follow-up questions needed.
+- If the user mentions kids under 7, pass kids_under_7 to the tool.
 - Pass num_nights to the tool whenever the user mentions nights separately from days.
 - When the user asks to compare destinations, call compare_destinations with all mentioned destination names, the people count, the days count, and the origin.
 - Show a single-destination answer in EXACTLY this format — nothing else:
 
 Destination: {to_loc}
+Adults/Children 7+: X
+Kids under 7: X (included in rooms & meals, no ticket charge)
 Rooms needed: X
 Hotel cost: Rs Z
 Cab cost: Rs Z

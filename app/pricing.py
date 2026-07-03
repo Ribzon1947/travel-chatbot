@@ -227,12 +227,21 @@ def get_route_pricing(origin: str, destination: str) -> dict:
         pricing = _decrypt_route(route) if route else _DEFAULT_PRICING
 
     # Ensure ticket price reflects overall cost structure of the destination.
-    # Derive a ticket cost scaled from the default ticket using hotel price ratio,
+    # Derive ticket cost scaled from the average of (hotel + meals + cab) relative to defaults,
     # but don't reduce an explicitly set ticket below its original value.
     try:
         orig_ticket = int(pricing.get("ticket_cost_per_person", _DEFAULT_PRICING["ticket_cost_per_person"]))
-        hotel_ratio = pricing["hotel_cost_per_room_per_night"] / _DEFAULT_PRICING["hotel_cost_per_room_per_night"]
-        derived_ticket = round(_DEFAULT_PRICING["ticket_cost_per_person"] * hotel_ratio)
+        
+        # Calculate average cost ratio
+        avg_cost = (pricing["hotel_cost_per_room_per_night"] + 
+                    pricing["meal_cost_per_person_per_day"] + 
+                    pricing["cab_cost_per_day"]) / 3
+        avg_default = (_DEFAULT_PRICING["hotel_cost_per_room_per_night"] + 
+                       _DEFAULT_PRICING["meal_cost_per_person_per_day"] + 
+                       _DEFAULT_PRICING["cab_cost_per_day"]) / 3
+        cost_ratio = avg_cost / avg_default
+        
+        derived_ticket = round(_DEFAULT_PRICING["ticket_cost_per_person"] * cost_ratio)
         pricing["ticket_cost_per_person"] = max(orig_ticket, int(derived_ticket))
     except Exception:
         # If anything goes wrong, fall back to original pricing
@@ -308,9 +317,15 @@ def calculate_trip_cost(
     destination: str = "Default",
     from_location: str = _DEFAULT_PLACE,
     num_nights: int | None = None,
+    kids_under_7: int = 0,
 ) -> dict:
     p = get_route_pricing(from_location, destination)
-    rooms = math.ceil(num_people / p["people_per_room"])
+    
+    # Kids under 7 are included in room and meal counts but do NOT pay for tickets
+    total_people_for_rooms = num_people + kids_under_7
+    people_paying_tickets = num_people  # Only adults/children 7+ pay for tickets
+    
+    rooms = math.ceil(total_people_for_rooms / p["people_per_room"])
 
     if num_nights is None or num_days == num_nights:
         billing_units = float(num_days)
@@ -320,22 +335,24 @@ def calculate_trip_cost(
 
     hotel = rooms * p["hotel_cost_per_room_per_night"] * billing_units
     cab   = p["cab_cost_per_day"] * num_days
-    meals = p["meal_cost_per_person_per_day"] * num_people * billing_units
-    tickets = p["ticket_cost_per_person"] * num_people
+    meals = p["meal_cost_per_person_per_day"] * total_people_for_rooms * billing_units
+    tickets = p["ticket_cost_per_person"] * people_paying_tickets
 
     return {
-        "origin":        from_location,
-        "destination":   destination,
-        "num_people":    num_people,
-        "num_days":      num_days,
-        "num_nights":    num_nights if num_nights is not None else num_days,
-        "billing_units": billing_units,
-        "rooms_needed":  rooms,
-        "hotel_total":   round(hotel),
-        "cab_total":     round(cab),
-        "meals_total":   round(meals),
-        "ticket_total":  round(tickets),
-        "grand_total":   round(hotel + cab + meals + tickets),
+        "origin":            from_location,
+        "destination":       destination,
+        "num_people":        num_people,
+        "kids_under_7":      kids_under_7,
+        "total_people":      total_people_for_rooms,
+        "num_days":          num_days,
+        "num_nights":        num_nights if num_nights is not None else num_days,
+        "billing_units":     billing_units,
+        "rooms_needed":      rooms,
+        "hotel_total":       round(hotel),
+        "cab_total":         round(cab),
+        "meals_total":       round(meals),
+        "ticket_total":      round(tickets),
+        "grand_total":       round(hotel + cab + meals + tickets),
     }
 
 def calculate_multi_city_trip(
