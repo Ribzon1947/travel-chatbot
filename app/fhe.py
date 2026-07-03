@@ -39,8 +39,9 @@ def compile_circuit() -> str:
             return x
 
         # Minimal inputset covering all real pricing values — keeps compilation fast
-        inputset = [0, 500, 700, 800, 1800, 2000, 2200, 2500, 2800,
-                    3000, 3700, 4000, 4300, 5000, 10000, 50000, 100000]
+        # Includes base prices and Latvaria's high values (hotel: 15000, meals: 5000)
+        inputset = [0, 500, 700, 800, 1, 2, 3, 1800, 2000, 2200, 2500, 2800,
+                    3000, 3300, 3700, 4000, 4300, 5000, 10000, 15000, 50000, 100000]
 
         logger.info("Compiling Zama FHE circuit…")
         _circuit = _identity.compile(inputset)
