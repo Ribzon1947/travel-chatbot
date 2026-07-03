@@ -26,8 +26,9 @@ def init_db() -> None:
 
     sql_text = schema_path.read_text(encoding="utf-8")
     with engine.begin() as conn:
-        if _DB_URL.startswith("sqlite"):
-            conn.exec_driver_sql(sql_text)
-        else:
-            for statement in [s.strip() for s in sql_text.split(";") if s.strip()]:
+        # Split statements by semicolon and execute each one separately
+        for statement in [s.strip() for s in sql_text.split(";") if s.strip()]:
+            if _DB_URL.startswith("sqlite"):
+                conn.exec_driver_sql(statement)
+            else:
                 conn.execute(text(statement))
