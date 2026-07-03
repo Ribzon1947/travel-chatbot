@@ -23,5 +23,5 @@ CREATE TABLE IF NOT EXISTS route_pricing (
     updated_at DATETIME,
     FOREIGN KEY(place_id) REFERENCES places(id),
     FOREIGN KEY(destination_id) REFERENCES destinations(id),
-    UNIQUE(place_id, destination_id)
+    UNIQUE (place_id, destination_id)
 );
