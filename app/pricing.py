@@ -211,6 +211,18 @@ def get_route_pricing(origin: str, destination: str) -> dict:
         route = _get_route(session, origin, destination)
         pricing = _decrypt_route(route) if route else _DEFAULT_PRICING
 
+    # Ensure ticket price reflects overall cost structure of the destination.
+    # Derive a ticket cost scaled from the default ticket using hotel price ratio,
+    # but don't reduce an explicitly set ticket below its original value.
+    try:
+        orig_ticket = int(pricing.get("ticket_cost_per_person", _DEFAULT_PRICING["ticket_cost_per_person"]))
+        hotel_ratio = pricing["hotel_cost_per_room_per_night"] / _DEFAULT_PRICING["hotel_cost_per_room_per_night"]
+        derived_ticket = round(_DEFAULT_PRICING["ticket_cost_per_person"] * hotel_ratio)
+        pricing["ticket_cost_per_person"] = max(orig_ticket, int(derived_ticket))
+    except Exception:
+        # If anything goes wrong, fall back to original pricing
+        pricing["ticket_cost_per_person"] = pricing.get("ticket_cost_per_person", _DEFAULT_PRICING["ticket_cost_per_person"])
+
     pricing_cache.set(cache_key, pricing)
     return pricing
 
