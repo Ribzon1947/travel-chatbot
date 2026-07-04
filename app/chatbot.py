@@ -10,7 +10,7 @@ _TOOL = types.Tool(function_declarations=[
     types.FunctionDeclaration(
         name="calculate_trip_cost",
         description=(
-            "Calculate the complete trip cost breakdown for the given origin, destination, number of people, and days. "
+            "Calculate the complete trip cost breakdown for the given origin, number of people, and days. "
             "Kids under 7 are included in rooms and meals but DO NOT pay for tickets. "
             "Always call this before giving any cost figures."
         ),
@@ -20,10 +20,6 @@ _TOOL = types.Tool(function_declarations=[
                 "from_location": types.Schema(
                     type=types.Type.STRING,
                     description="Origin place or city for the route.",
-                ),
-                "destination": types.Schema(
-                    type=types.Type.STRING,
-                    description="Destination place or city.",
                 ),
                 "num_people": types.Schema(
                     type=types.Type.INTEGER,
@@ -48,7 +44,7 @@ _TOOL = types.Tool(function_declarations=[
                     description="Number of kids under 7 years old. They are included in room and meal costs but DO NOT pay for tickets.",
                 ),
             },
-            required=["num_people", "num_days", "destination"],
+            required=["num_people", "num_days"],
         ),
     ),
     types.FunctionDeclaration(
@@ -270,12 +266,12 @@ def _sync_chat(message: str, history: list[dict], from_loc: str, to_loc: str) ->
         for fc in fn_calls:
             try:
                 if fc.name == "calculate_trip_cost":
-                    result = calculate_trip_cost(**fc.args, destination=to_loc)
+                    # Remove destination from args if present, always use context's to_loc
+                    args = dict(fc.args)
+                    args.pop("destination", None)
+                    result = calculate_trip_cost(**args, destination=to_loc)
                 elif fc.name == "compare_destinations":
                     result = {"comparisons": compare_destinations(**fc.args)}
-                elif fc.name == "calculate_multi_city_trip":
-                    result = calculate_multi_city_trip(**fc.args)
-                # 3. ADDED THE NEW ELIF BLOCK TO EXECUTE THE TOOL
                 elif fc.name == "calculate_multi_city_trip":
                     result = calculate_multi_city_trip(**fc.args)
                 else:
