@@ -160,6 +160,7 @@ Instructions:
 - Pass num_nights to the tool whenever the user mentions nights separately from days.
 - When the user asks to compare destinations, call compare_destinations with all mentioned destination names, the people count, the days count, and the origin. Include kids_under_7 if mentioned.
 - When the user plans a MULTI-DESTINATION itinerary (e.g., "Goa for 3 days, then Manali for 2 days, then Shimla for 2 days"), call calculate_multi_city_trip with the full itinerary array.
+- When the user asks about train fare, bus fare, transport cost, or how to travel between two cities, call estimate_transport_fares with the origin and destination cities.
 - Show a single-destination answer in EXACTLY this format — nothing else:
 
 Destination: {to_loc}
@@ -195,7 +196,6 @@ Comparison: X people, Y days
 | Cab cost     | Rs Z         | Rs Z         |
 | Meal cost    | Rs Z         | Rs Z         |
 | Ticket cost  | Rs Z         | Rs Z         |
-| Total        | Rs Z         | Rs Z         |
 
 Cheapest: A at Rs Z
 
@@ -207,6 +207,13 @@ Cab total: Rs Z
 Meals total: Rs Z
 Ticket total: Rs Z
 Grand Total: Rs Z
+
+- Show a transport fare answer in EXACTLY this format — nothing else:
+
+Route: {{origin}} to {{destination}}
+Train average: Rs Z
+Bus average: Rs Z
+Overall average: Rs Z
 
 OUTPUT RULES — strictly enforced:
 - Do NOT add any parentheses, brackets, or extra text after any line.
@@ -228,6 +235,51 @@ def _get_client() -> genai.Client:
             raise RuntimeError("GOOGLE_AI_KEY is not configured. Add it in Render → Environment.")
         _client = genai.Client(api_key=key)
     return _client
+
+
+def estimate_transport_fares(origin: str, destination: str) -> dict:
+    """
+    Uses a separate Gemini call with Google Search grounding to find current
+    train and bus fares between two cities, then returns averages.
+
+    Kept as its own Gemini call (rather than mixed into the main agent call)
+    because function-calling tools and google_search grounding cannot
+    reliably be combined in a single request.
+    """
+    client = _get_client()
+    settings = get_settings()
+
+    prompt = f"""Search for current one-way train and bus fares from {origin} to {destination} in India.
+
+Return ONLY a JSON object in this exact format, nothing else, no markdown fences:
+{{"train_fares": [<fare numbers in INR>], "bus_fares": [<fare numbers in INR>], "train_avg": <integer>, "bus_avg": <integer>, "overall_avg": <integer>, "sources": [<source names>]}}
+
+If you cannot find fares for one mode, use an empty list and 0 for its average."""
+
+    try:
+        response = client.models.generate_content(
+            model=settings.agent_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+            ),
+        )
+        text = (response.text or "").strip()
+        text = re.sub(r"^```json\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
+
+        import json
+        result = json.loads(text)
+        result.setdefault("origin", origin)
+        result.setdefault("destination", destination)
+        return result
+
+    except Exception as e:
+        return {
+            "error": f"Could not estimate fares: {e}",
+            "train_fares": [], "bus_fares": [],
+            "train_avg": 0, "bus_avg": 0, "overall_avg": 0,
+            "sources": [], "origin": origin, "destination": destination,
+        }
 
 
 def _sync_chat(message: str, history: list[dict], from_loc: str, to_loc: str) -> str:
@@ -274,6 +326,8 @@ def _sync_chat(message: str, history: list[dict], from_loc: str, to_loc: str) ->
                     result = {"comparisons": compare_destinations(**fc.args)}
                 elif fc.name == "calculate_multi_city_trip":
                     result = calculate_multi_city_trip(**fc.args)
+                elif fc.name == "estimate_transport_fares":
+                    result = estimate_transport_fares(**fc.args)
                 else:
                     result = {"error": f"Unknown function: {fc.name}"}
             except (TypeError, ValueError, KeyError) as e:
