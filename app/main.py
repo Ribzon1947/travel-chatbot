@@ -9,19 +9,17 @@ from fastapi.responses import FileResponse
 from app.config import get_settings
 from app.schemas import ChatRequest, ChatResponse, DestinationPricing, DestinationCreate
 from app.chatbot import chat
-from app.pricing import get_all_destinations, upsert_destination, delete_destination, startup
+from app.pricing import get_all_destinations, get_all_places, upsert_destination, delete_destination, startup
 from app.cache import pricing_cache
 from app.fhe import encryption_mode
 
 settings = get_settings()
 
 
-# ── Lifespan: compile FHE circuit + create DB tables on startup ───────────────
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, startup)  # runs in thread pool so event loop stays free
+    await loop.run_in_executor(None, startup)
     yield
 
 
@@ -35,8 +33,6 @@ app.add_middleware(
 )
 
 
-# ── Admin auth dependency ─────────────────────────────────────────────────────
-
 async def require_admin(authorization: str | None = Header(default=None)):
     expected = f"Bearer {get_settings().admin_password}"
     if authorization != expected:
@@ -46,8 +42,6 @@ async def require_admin(authorization: str | None = Header(default=None)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-
-# ── Chat ──────────────────────────────────────────────────────────────────────
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(body: ChatRequest):
@@ -69,44 +63,48 @@ async def health():
     }
 
 
-# ── Public: list destinations ─────────────────────────────────────────────────
-
 @app.get("/api/destinations")
 async def public_destinations(origin: str | None = None):
     return get_all_destinations(origin)
 
 
-# ── Admin: destination pricing CRUD ──────────────────────────────────────────
+# ── Admin: origins list (for the dropdown) ────────────────────────────────────
+
+@app.get("/api/admin/places", dependencies=[Depends(require_admin)])
+async def list_places():
+    return get_all_places()
+
+
+# ── Admin: destination pricing CRUD (now origin-aware) ────────────────────────
 
 @app.get("/api/admin/destinations", dependencies=[Depends(require_admin)])
-async def list_destinations():
-    return get_all_destinations()
+async def list_destinations(origin: str | None = None):
+    return get_all_destinations(origin)
 
 
 @app.post("/api/admin/destinations", dependencies=[Depends(require_admin)])
 async def create_destination(body: DestinationCreate):
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="Destination name cannot be empty")
-    updated = upsert_destination(body.name.strip(), body.pricing.model_dump())
-    return {"destination": body.name.strip(), "pricing": updated}
+    origin = (body.origin or "Default").strip() or "Default"
+    updated = upsert_destination(body.name.strip(), body.pricing.model_dump(), origin)
+    return {"destination": body.name.strip(), "origin": origin, "pricing": updated}
 
 
 @app.put("/api/admin/destinations/{destination}", dependencies=[Depends(require_admin)])
-async def update_destination(destination: str, pricing: DestinationPricing):
-    updated = upsert_destination(destination, pricing.model_dump())
-    return {"destination": destination, "pricing": updated}
+async def update_destination(destination: str, pricing: DestinationPricing, origin: str = "Default"):
+    updated = upsert_destination(destination, pricing.model_dump(), origin)
+    return {"destination": destination, "origin": origin, "pricing": updated}
 
 
 @app.delete("/api/admin/destinations/{destination}", dependencies=[Depends(require_admin)])
-async def remove_destination(destination: str):
-    if destination == "Default":
+async def remove_destination(destination: str, origin: str = "Default"):
+    if destination == "Default" and origin == "Default":
         raise HTTPException(status_code=400, detail="Cannot delete the Default destination")
-    if not delete_destination(destination):
-        raise HTTPException(status_code=404, detail=f"Destination '{destination}' not found")
-    return {"deleted": destination}
+    if not delete_destination(destination, origin):
+        raise HTTPException(status_code=404, detail=f"Route '{origin}' → '{destination}' not found")
+    return {"deleted": destination, "origin": origin}
 
-
-# ── Cache management (admin) ──────────────────────────────────────────────────
 
 @app.get("/api/admin/cache/stats", dependencies=[Depends(require_admin)])
 async def cache_stats():
@@ -118,8 +116,6 @@ async def flush_cache():
     pricing_cache.clear()
     return {"flushed": True}
 
-
-# ── Frontend static files ─────────────────────────────────────────────────────
 
 @app.get("/admin")
 async def admin_page():

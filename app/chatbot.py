@@ -285,7 +285,7 @@ If you cannot find fares for one mode, use an empty list and 0 for its average."
 def _sync_chat(message: str, history: list[dict], from_loc: str, to_loc: str) -> str:
     client   = _get_client()
     settings = get_settings()
-    pricing  = get_destination_pricing(to_loc)
+    pricing  = get_destination_pricing(to_loc, from_loc)
     system   = _build_system_prompt(from_loc, to_loc, pricing)
 
     contents: list[types.Content] = []

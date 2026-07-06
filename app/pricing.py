@@ -251,9 +251,8 @@ def get_route_pricing(origin: str, destination: str) -> dict:
     return pricing
 
 
-def get_destination_pricing(destination: str) -> dict:
-    return get_route_pricing(_DEFAULT_PLACE, destination)
-
+def get_destination_pricing(destination: str, origin: str = _DEFAULT_PLACE) -> dict:
+    return get_route_pricing(origin, destination)
 
 def upsert_destination(destination: str, pricing: dict) -> dict:
     enc = _encrypt_row(pricing)
