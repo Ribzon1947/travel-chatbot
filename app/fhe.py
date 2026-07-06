@@ -49,8 +49,9 @@ def compile_circuit() -> str:
 
         logger.info("Compiling Zama FHE circuit…")
         _circuit = _identity.compile(inputset)
+        assert _circuit is not None, "Circuit compilation returned None"
         _circuit.keygen()
-
+        
         _mode = "concrete"
         logger.info("Zama FHE ready — mode=concrete")
         return _mode
