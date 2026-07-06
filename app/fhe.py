@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 _FHE_DIR = Path(os.environ.get("FHE_DIR", str(Path(__file__).parent.parent / ".fhe")))
 _AES_KEY_FILE = _FHE_DIR / "aes.key"
 
-_circuit = None
+from typing import Any, Optional
+_circuit: Optional[Any] = None
 _aes_key: bytes | None = None
 _mode: str = "none"    # "concrete" | "aes"
 
@@ -93,11 +94,11 @@ def _aes_decrypt(data: bytes) -> int:
 
 def encrypt_value(value: int) -> bytes:
     """Encrypt a pricing integer. Uses Zama FHE if available, else AES-GCM."""
-    # Ensure the FHE/AES layer is initialized (lazy init if startup wasn't run)
     if _mode == "none":
         compile_circuit()
 
     if _mode == "concrete":
+        assert _circuit is not None, "FHE circuit not initialized"
         enc = _circuit.encrypt(value)
         result = _circuit.run(enc)
         return bytes(result.serialize())   # TransportValue native serialization
@@ -105,21 +106,19 @@ def encrypt_value(value: int) -> bytes:
         return _aes_encrypt(value)
     raise RuntimeError("FHE layer not initialised — call compile_circuit() first.")
 
-
 def decrypt_value(data: bytes) -> int:
     """Decrypt a pricing integer."""
-    # Ensure the FHE/AES layer is initialized (lazy init if startup wasn't run)
     if _mode == "none":
         compile_circuit()
 
     if _mode == "concrete":
+        assert _circuit is not None, "FHE circuit not initialized"
         from concrete.fhe import Value          
         result = Value.deserialize(data)
         return int(_circuit.decrypt(result))
     if _mode == "aes":
         return _aes_decrypt(data)
     raise RuntimeError("FHE layer not initialised — call compile_circuit() first.")
-
 
 def encryption_mode() -> str:
     """Return the active encryption backend: 'concrete' or 'aes'."""
