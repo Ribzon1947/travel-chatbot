@@ -9,7 +9,10 @@ from fastapi.responses import FileResponse
 from app.config import get_settings
 from app.schemas import ChatRequest, ChatResponse, DestinationPricing, DestinationCreate
 from app.chatbot import chat
-from app.pricing import get_all_destinations, get_all_places, upsert_destination, delete_destination, startup
+updated = upsert_destination(body.name.strip(), body.pricing.model_dump(), origin)
+...
+if not delete_destination(destination, origin):
+    raise HTTPException(status_code=404, detail=f"Route '{origin}' → '{destination}' not found")
 from app.cache import pricing_cache
 from app.fhe import encryption_mode
 
