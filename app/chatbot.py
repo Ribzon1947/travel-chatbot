@@ -2,6 +2,7 @@ import asyncio
 import re
 from google import genai
 from google.genai import types
+from app.fare_estimator import estimate_transport_fares
 
 from app.config import get_settings
 from app.pricing import calculate_trip_cost, compare_destinations, get_destination_pricing, calculate_multi_city_trip
