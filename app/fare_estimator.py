@@ -1,5 +1,6 @@
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from typing import Dict, Any
 
 # Configure the Gemini API key from your Render environment variables
