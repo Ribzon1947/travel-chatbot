@@ -309,6 +309,22 @@
     </div>
   </div>
 
+  <!-- Hotels: browse cache + refresh from Google -->
+  <div class="card">
+    <h2>🏨 Cached Hotels (RAG)</h2>
+    <div style="display:flex;gap:10px;margin-bottom:16px;">
+      <input type="text" id="hotel-admin-city" placeholder="City (e.g. Goa)"
+             style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;" />
+      <button class="btn btn-secondary" onclick="loadCachedHotels()">Browse Cache</button>
+      <button class="btn btn-primary" onclick="refreshHotelsFromGoogle()">Refresh from Google</button>
+    </div>
+    <div class="tbl-wrap">
+      <div id="hotel-table-wrap"><p style="color:var(--muted);font-size:13px">Enter a city and click Browse Cache or Refresh.</p></div>
+    </div>
+  </div>
+
+</div>
+
 </div>
 
 <div class="toast" id="toast"></div>
@@ -540,6 +556,76 @@ if (saved) {
     .catch(() => showLoginOverlay('Cannot reach backend server.'));
 } else {
   showLoginOverlay();
+}
+</script>
+<script>
+async function loadCachedHotels() {
+  const city = document.getElementById('hotel-admin-city').value.trim();
+  const wrap = document.getElementById('hotel-table-wrap');
+  wrap.innerHTML = '<p style="color:var(--muted);font-size:13px">Loading…</p>';
+
+  try {
+    const params = city ? `?city=${encodeURIComponent(city)}` : '';
+    const res = await fetch(`${BACKEND}/api/admin/hotels${params}`, { headers: authHeader() });
+    if (res.status === 401) { showLoginOverlay('Session expired. Please sign in again.'); return; }
+    if (!res.ok) { showToast('Failed to load cached hotels', 'error'); return; }
+    renderHotelAdminTable(await res.json());
+  } catch (e) {
+    showToast('Network error: ' + e.message, 'error');
+  }
+}
+
+async function refreshHotelsFromGoogle() {
+  const city = document.getElementById('hotel-admin-city').value.trim();
+  if (!city) { showToast('Enter a city first', 'error'); return; }
+
+  const wrap = document.getElementById('hotel-table-wrap');
+  wrap.innerHTML = '<p style="color:var(--muted);font-size:13px">Refreshing from Google Places…</p>';
+
+  try {
+    const res = await fetch(`${BACKEND}/api/admin/hotels/refresh?city=${encodeURIComponent(city)}`, {
+      method: 'POST',
+      headers: authHeader(),
+    });
+    if (res.status === 401) { showLoginOverlay('Session expired. Please sign in again.'); return; }
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      showToast(e.detail || 'Refresh failed', 'error');
+      return;
+    }
+    const data = await res.json();
+    showToast(`Refreshed ${data.refreshed} hotels for ${city}`, 'success');
+    loadCachedHotels();
+  } catch (e) {
+    showToast('Network error: ' + e.message, 'error');
+  }
+}
+
+function renderHotelAdminTable(rows) {
+  const wrap = document.getElementById('hotel-table-wrap');
+  if (!rows.length) {
+    wrap.innerHTML = '<p style="color:var(--muted);font-size:13px">No cached hotels found. Try "Refresh from Google".</p>';
+    return;
+  }
+
+  let html = `<table>
+    <thead><tr>
+      <th>Hotel</th><th>City</th><th>Address</th><th>Last Rate Seen</th><th>Last Updated</th>
+    </tr></thead><tbody>`;
+
+  for (const r of rows) {
+    const updated = r.last_updated ? new Date(r.last_updated).toLocaleString() : '—';
+    html += `<tr>
+      <td class="dest-name">${r.name}</td>
+      <td>${r.city}</td>
+      <td style="font-size:12px;color:var(--muted)">${r.address || ''}</td>
+      <td>${r.last_rate_seen ? '₹' + r.last_rate_seen.toLocaleString() : 'N/A'}</td>
+      <td style="font-size:12px;color:var(--muted)">${updated}</td>
+    </tr>`;
+  }
+
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
 }
 </script>
 </body>
