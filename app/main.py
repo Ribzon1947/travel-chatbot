@@ -123,7 +123,6 @@ async def flush_cache():
 async def admin_page():
     return FileResponse("frontend/admin.html")
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
 
 # ── Public: hotel search ───────────────────────────────────────────────────────
 
@@ -173,3 +172,8 @@ async def refresh_hotels(city: str):
         return {"city": city, "refreshed": len(hotels), "hotels": hotels}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Static Files (CRITICAL: Keep at the very bottom as a fallback) ────────────
+
+app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
