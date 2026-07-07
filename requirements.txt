@@ -5,7 +5,7 @@ google-genai>=1.0.0
 pydantic>=2.8.0
 pydantic-settings>=2.0.0
 python-dotenv>=1.0.0
-
+google-generativeai
 # SQL database
 sqlalchemy>=2.0.0
 
