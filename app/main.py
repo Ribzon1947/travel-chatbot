@@ -12,7 +12,9 @@ from app.chatbot import chat
 from app.pricing import get_all_destinations, get_all_places, upsert_destination, delete_destination, startup
 from app.cache import pricing_cache
 from app.fhe import encryption_mode
-
+from app.hotel_search import search_hotels, semantic_hotel_search
+from app.database import SessionLocal
+from app.models import HotelListing
 settings = get_settings()
 
 
@@ -122,3 +124,52 @@ async def admin_page():
     return FileResponse("frontend/admin.html")
 
 app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
+
+# ── Public: hotel search ───────────────────────────────────────────────────────
+
+@app.get("/api/hotels/search")
+async def hotel_search_endpoint(city: str, query: str | None = None, hotel_name: str | None = None):
+    try:
+        if hotel_name:
+            hotels = search_hotels(city, hotel_name=hotel_name)
+        elif query:
+            hotels = semantic_hotel_search(query, city=city)
+        else:
+            hotels = search_hotels(city)
+        return {"city": city, "hotels": hotels}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Admin: browse cached hotels + force refresh ────────────────────────────────
+
+@app.get("/api/admin/hotels", dependencies=[Depends(require_admin)])
+async def list_cached_hotels(city: str | None = None):
+    session = SessionLocal()
+    try:
+        q = session.query(HotelListing)
+        if city:
+            q = q.filter(HotelListing.city == city)
+        rows = q.order_by(HotelListing.city, HotelListing.name).all()
+        return [
+            {
+                "city": r.city,
+                "name": r.name,
+                "address": r.description,
+                "amenities": r.amenities,
+                "last_rate_seen": r.last_rate_seen,
+                "last_updated": r.last_updated.isoformat() if r.last_updated else None,
+            }
+            for r in rows
+        ]
+    finally:
+        session.close()
+
+
+@app.post("/api/admin/hotels/refresh", dependencies=[Depends(require_admin)])
+async def refresh_hotels(city: str):
+    try:
+        hotels = search_hotels(city)
+        return {"city": city, "refreshed": len(hotels), "hotels": hotels}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

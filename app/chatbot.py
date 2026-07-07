@@ -2,10 +2,11 @@ import asyncio
 import re
 from google import genai
 from google.genai import types
-from app.fare_estimator import estimate_transport_fares
 
 from app.config import get_settings
 from app.pricing import calculate_trip_cost, compare_destinations, get_destination_pricing, calculate_multi_city_trip
+from app.fare_estimator import estimate_transport_fares
+from app.hotel_search import search_hotels, semantic_hotel_search
 
 _TOOL = types.Tool(function_declarations=[
     types.FunctionDeclaration(
@@ -131,6 +132,55 @@ _TOOL = types.Tool(function_declarations=[
             required=["num_people", "itinerary"],
         ),
     ),
+    types.FunctionDeclaration(
+        name="estimate_transport_fares",
+        description=(
+            "Search the web for current one-way train and bus fares between an origin and destination city, "
+            "and return the average fare for each mode plus an overall average. "
+            "Call this when the user asks about train fare, bus fare, transport cost, or how to get from one city to another."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "origin": types.Schema(
+                    type=types.Type.STRING,
+                    description="Origin city name.",
+                ),
+                "destination": types.Schema(
+                    type=types.Type.STRING,
+                    description="Destination city name.",
+                ),
+            },
+            required=["origin", "destination"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="find_hotels",
+        description=(
+            "Find hotels in a city, optionally matching a preference query (e.g. "
+            "'budget hotel near the beach with a pool') or a specific hotel name. "
+            "Returns hotel details with a live estimated per-night rate. Call this when the "
+            "user asks about hotel options, specific hotels, or hotel preferences for a destination."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "city": types.Schema(
+                    type=types.Type.STRING,
+                    description="City to search hotels in.",
+                ),
+                "preference_query": types.Schema(
+                    type=types.Type.STRING,
+                    description="Natural-language preference, e.g. 'quiet hotel with pool'. Omit if just a specific hotel name is given.",
+                ),
+                "hotel_name": types.Schema(
+                    type=types.Type.STRING,
+                    description="Specific hotel name, if the user named one.",
+                ),
+            },
+            required=["city"],
+        ),
+    ),
 ])
 
 _PAREN_RE = re.compile(r'\s*[\(\[].*', re.DOTALL)
@@ -162,6 +212,7 @@ Instructions:
 - When the user asks to compare destinations, call compare_destinations with all mentioned destination names, the people count, the days count, and the origin. Include kids_under_7 if mentioned.
 - When the user plans a MULTI-DESTINATION itinerary (e.g., "Goa for 3 days, then Manali for 2 days, then Shimla for 2 days"), call calculate_multi_city_trip with the full itinerary array.
 - When the user asks about train fare, bus fare, transport cost, or how to travel between two cities, call estimate_transport_fares with the origin and destination cities.
+- When the user asks about hotels, hotel options, or hotel preferences for a destination, call find_hotels with the city and their preference query or hotel name.
 - Show a single-destination answer in EXACTLY this format — nothing else:
 
 Destination: {to_loc}
@@ -216,6 +267,8 @@ Train average: Rs Z
 Bus average: Rs Z
 Overall average: Rs Z
 
+- Show a hotel search answer as a markdown table with columns: Hotel, Rate/Night, Rating, Address — nothing else besides the table.
+
 OUTPUT RULES — strictly enforced:
 - Do NOT add any parentheses, brackets, or extra text after any line.
 - Do NOT write multiplication breakdowns.
@@ -236,51 +289,6 @@ def _get_client() -> genai.Client:
             raise RuntimeError("GOOGLE_AI_KEY is not configured. Add it in Render → Environment.")
         _client = genai.Client(api_key=key)
     return _client
-
-
-def estimate_transport_fares(origin: str, destination: str) -> dict:
-    """
-    Uses a separate Gemini call with Google Search grounding to find current
-    train and bus fares between two cities, then returns averages.
-
-    Kept as its own Gemini call (rather than mixed into the main agent call)
-    because function-calling tools and google_search grounding cannot
-    reliably be combined in a single request.
-    """
-    client = _get_client()
-    settings = get_settings()
-
-    prompt = f"""Search for current one-way train and bus fares from {origin} to {destination} in India.
-
-Return ONLY a JSON object in this exact format, nothing else, no markdown fences:
-{{"train_fares": [<fare numbers in INR>], "bus_fares": [<fare numbers in INR>], "train_avg": <integer>, "bus_avg": <integer>, "overall_avg": <integer>, "sources": [<source names>]}}
-
-If you cannot find fares for one mode, use an empty list and 0 for its average."""
-
-    try:
-        response = client.models.generate_content(
-            model=settings.agent_model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-            ),
-        )
-        text = (response.text or "").strip()
-        text = re.sub(r"^```json\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
-
-        import json
-        result = json.loads(text)
-        result.setdefault("origin", origin)
-        result.setdefault("destination", destination)
-        return result
-
-    except Exception as e:
-        return {
-            "error": f"Could not estimate fares: {e}",
-            "train_fares": [], "bus_fares": [],
-            "train_avg": 0, "bus_avg": 0, "overall_avg": 0,
-            "sources": [], "origin": origin, "destination": destination,
-        }
 
 
 def _sync_chat(message: str, history: list[dict], from_loc: str, to_loc: str) -> str:
@@ -322,13 +330,22 @@ def _sync_chat(message: str, history: list[dict], from_loc: str, to_loc: str) ->
                     # Remove destination from args if present, always use context's to_loc
                     args = dict(fc.args)
                     args.pop("destination", None)
-                    result = calculate_trip_cost(**args, destination=to_loc)
+                    args.pop("from_location", None)
+                    result = calculate_trip_cost(**args, destination=to_loc, from_location=from_loc or "Default")
                 elif fc.name == "compare_destinations":
                     result = {"comparisons": compare_destinations(**fc.args)}
                 elif fc.name == "calculate_multi_city_trip":
                     result = calculate_multi_city_trip(**fc.args)
                 elif fc.name == "estimate_transport_fares":
                     result = estimate_transport_fares(**fc.args)
+                elif fc.name == "find_hotels":
+                    args = dict(fc.args)
+                    if args.get("hotel_name"):
+                        result = {"hotels": search_hotels(args["city"], hotel_name=args["hotel_name"])}
+                    elif args.get("preference_query"):
+                        result = {"hotels": semantic_hotel_search(args["preference_query"], city=args["city"])}
+                    else:
+                        result = {"hotels": search_hotels(args["city"])}
                 else:
                     result = {"error": f"Unknown function: {fc.name}"}
             except (TypeError, ValueError, KeyError) as e:

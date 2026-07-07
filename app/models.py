@@ -249,3 +249,22 @@ class DestinationPopularity(Base):
     last_updated = Column(DateTime, default=datetime.utcnow)
     
     destination = relationship("Destination", back_populates="popularity")
+
+
+# ─── Real-Time Hotel Search & RAG Cache ──────────────────────────────────────
+
+class HotelListing(Base):
+    __tablename__ = "hotel_listings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    city = Column(String(128), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    amenities = Column(Text, nullable=True)          # comma-joined amenity list
+    embedding = Column(Text, nullable=True)          # JSON-encoded float list
+    last_rate_seen = Column(Integer, nullable=True)  # last known nightly rate, for reference only
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("city", "name", name="uq_city_hotel_name"),
+    )
