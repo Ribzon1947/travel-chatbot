@@ -20,10 +20,14 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # Automatically create any missing tables (like hotel_listings) on startup
+    from app.database import engine
+    from app.models import Base
+    Base.metadata.create_all(bind=engine)
+
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, startup)
     yield
-
 
 app = FastAPI(title="Travel Cost Chatbot API", version="4.0.0", lifespan=lifespan)
 
