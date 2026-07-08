@@ -88,7 +88,7 @@ def search_hotels(city, hotel_name=None):
 
             # Rough baseline estimate from Google's price_level tier (0-4).
             # This is an ESTIMATE ONLY -- Google Places does not expose real booking rates.
-            estimated_rate = (price_level if price_level and price_level > 0 else 2) * 1800
+           
 
             existing_listing = session.query(HotelListing).filter(
                 HotelListing.city.ilike(city),
