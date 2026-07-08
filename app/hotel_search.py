@@ -13,6 +13,8 @@ from google import genai
 from app.config import get_settings
 from app.database import SessionLocal
 from app.models import HotelListing
+# Import the live price estimator from your fare_estimator module
+from app.fare_estimator import estimate_live_hotel_price
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +86,9 @@ def search_hotels(city, hotel_name=None):
             name = item.get("name")
             address = item.get("formatted_address", "")
             rating = item.get("rating")
-            price_level = item.get("price_level", 2)
 
-            # Rough baseline estimate from Google's price_level tier (0-4).
-            # This is an ESTIMATE ONLY -- Google Places does not expose real booking rates.
-           
+            # FETCH REAL ESTIMATED PRICES VIA GEMINI + GOOGLE SEARCH GROUNDING
+            estimated_rate = estimate_live_hotel_price(name, city)
 
             existing_listing = session.query(HotelListing).filter(
                 HotelListing.city.ilike(city),
@@ -103,6 +103,7 @@ def search_hotels(city, hotel_name=None):
                     existing_listing.rating = rating
                 db_hotel = existing_listing
             else:
+                price_level = item.get("price_level", 2)
                 db_hotel = HotelListing(
                     city=city,
                     name=name,
