@@ -5,14 +5,13 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-
+from app.hotel_search import search_hotels, semantic_hotel_search, HotelSearchError
 from app.config import get_settings
 from app.schemas import ChatRequest, ChatResponse, DestinationPricing, DestinationCreate
 from app.chatbot import chat
 from app.pricing import get_all_destinations, get_all_places, upsert_destination, delete_destination, startup
 from app.cache import pricing_cache
 from app.fhe import encryption_mode
-from app.hotel_search import search_hotels, semantic_hotel_search
 from app.database import SessionLocal
 from app.models import HotelListing
 settings = get_settings()
@@ -140,6 +139,8 @@ async def hotel_search_endpoint(city: str, query: str | None = None, hotel_name:
         else:
             hotels = search_hotels(city)
         return {"city": city, "hotels": hotels}
+    except HotelSearchError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
