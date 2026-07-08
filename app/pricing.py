@@ -13,6 +13,7 @@ from app.database import SessionLocal, init_db
 from app.models import Place, Destination, RoutePricing
 from app.fhe import compile_circuit, encrypt_value, decrypt_value, encryption_mode
 from app.cache import pricing_cache
+from app.fare_estimator import estimate_transport_fares
 
 logger = logging.getLogger(__name__)
 
@@ -216,15 +217,52 @@ def get_all_destinations(origin=None):
     return result
 
 
+def _get_exact_route(session, origin, destination):
+    """Look up a route WITHOUT falling back to Default."""
+    place = _find_by_name(session, Place, origin)
+    dest = _find_by_name(session, Destination, destination)
+    if place is None or dest is None:
+        return None
+    return (
+        session.query(RoutePricing)
+        .filter(RoutePricing.place_id == place.id, RoutePricing.destination_id == dest.id)
+        .first()
+    )
+
+
 def get_route_pricing(origin, destination):
     cache_key = f"route:{origin or _DEFAULT_PLACE}:{destination}"
     cached = pricing_cache.get(cache_key)
     if cached is not None:
         return cached
 
+    live_fetched = False
+
     with _db() as session:
-        route = _get_route(session, origin, destination)
-        pricing = _decrypt_route(route) if route else dict(_DEFAULT_PRICING)
+        exact_route = _get_exact_route(session, origin, destination)
+
+        if exact_route is not None:
+            pricing = _decrypt_route(exact_route)
+        else:
+            fallback_route = _get_route(session, origin, destination)
+            pricing = _decrypt_route(fallback_route) if fallback_route else dict(_DEFAULT_PRICING)
+
+            if origin and origin != _DEFAULT_PLACE:
+                fare = estimate_transport_fares(origin, destination)
+                if fare.get("overall_avg"):
+                    pricing = dict(pricing)
+                    pricing["ticket_cost_per_person"] = int(fare["overall_avg"])
+                    live_fetched = True
+                    logger.info(
+                        "Live fare fetched for %s -> %s: Rs %s (train avg %s, bus avg %s)",
+                        origin, destination, fare["overall_avg"],
+                        fare.get("train_avg"), fare.get("bus_avg"),
+                    )
+                _seed_route(session, origin, destination, pricing)
+
+    if live_fetched:
+        pricing_cache.set(cache_key, pricing)
+        return pricing
 
     try:
         orig_ticket = int(pricing.get("ticket_cost_per_person", _DEFAULT_PRICING["ticket_cost_per_person"]))
@@ -244,7 +282,6 @@ def get_route_pricing(origin, destination):
 
     pricing_cache.set(cache_key, pricing)
     return pricing
-
 
 def get_destination_pricing(destination, origin=_DEFAULT_PLACE):
     return get_route_pricing(origin, destination)

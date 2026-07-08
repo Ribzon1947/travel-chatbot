@@ -1,42 +1,67 @@
+"""
+Live transport fare estimation via Gemini + Google Search grounding.
+"""
 import os
+import re
+import json
+import logging
+
 from google import genai
 from google.genai import types
-from typing import Dict, Any
 
-# Configure the Gemini API key from your Render environment variables
-api_key = os.getenv("GEMINI_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
+from app.config import get_settings
 
-def estimate_transport_fares(origin: str, destination: str) -> Dict[str, Any]:
+logger = logging.getLogger(__name__)
+
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        key = get_settings().google_ai_key
+        if not key:
+            raise RuntimeError("GOOGLE_AI_KEY is not configured. Add it in Render → Environment.")
+        _client = genai.Client(api_key=key)
+    return _client
+
+
+def estimate_transport_fares(origin: str, destination: str) -> dict:
     """
-    Uses Gemini to fetch live or estimated ticket fares for travel routes.
-    Returns a dictionary to satisfy the type requirements in chatbot.py.
+    Uses Gemini with Google Search grounding to find CURRENT train and bus
+    fares between two cities -- a real web search, not a guess.
     """
-    if not api_key:
-         return {"error": "Gemini API key is missing from environment variables."}
+    client = _get_client()
+    settings = get_settings()
+
+    prompt = f"""Search for current one-way train and bus fares from {origin} to {destination} in India.
+
+Return ONLY a JSON object in this exact format, nothing else, no markdown fences:
+{{"train_fares": [<fare numbers in INR>], "bus_fares": [<fare numbers in INR>], "train_avg": <integer>, "bus_avg": <integer>, "overall_avg": <integer>, "sources": [<source names>]}}
+
+If you cannot find fares for one mode, use an empty list and 0 for its average."""
 
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        prompt = (
-            f"Provide a rough estimate of current transport fares (flights, trains, or buses) "
-            f"for traveling from {origin} to {destination}. Include average prices in USD or "
-            f"local currency, and mention the standard modes of transport available for this route. "
-            f"Keep the response concise and helpful for a traveler."
+        response = client.models.generate_content(
+            model=settings.agent_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+            ),
         )
-        
-        response = model.generate_content(prompt)
-        
-        # Returning a dictionary to fix the Pylance type mismatch
-        return {
-            "status": "success",
-            "estimate": response.text
-        }
+        text = (response.text or "").strip()
+        text = re.sub(r"^```json\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
+
+        result = json.loads(text)
+        result.setdefault("origin", origin)
+        result.setdefault("destination", destination)
+        return result
 
     except Exception as e:
-        print(f"Error fetching fares: {e}")
+        logger.warning("Fare estimation failed for %s -> %s: %s", origin, destination, e)
         return {
-            "status": "error",
-            "error": "I'm sorry, I couldn't fetch the fare estimates for that route right now."
+            "error": f"Could not estimate fares: {e}",
+            "train_fares": [], "bus_fares": [],
+            "train_avg": 0, "bus_avg": 0, "overall_avg": 0,
+            "sources": [], "origin": origin, "destination": destination,
         }
