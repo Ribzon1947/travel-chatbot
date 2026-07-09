@@ -1,14 +1,16 @@
 """
 Live Estimation Layer via Gemini + Google Search Grounding.
 Handles dynamic web searches for real-time ticket costs and hotel pricing.
+
+IMPORTANT: Gemini's API does not allow combining tool use (google_search
+grounding) with an enforced response_schema/response_mime_type="application/json".
+Doing so raises a 400 INVALID_ARGUMENT error on every call. So for these
+grounded calls, JSON is requested via the prompt text and parsed manually.
 """
 
 import json
 import logging
-import os
 import re
-from typing import List
-from pydantic import BaseModel, Field
 
 from google import genai
 from google.genai import types
@@ -30,29 +32,30 @@ def _get_client():
     return _client
 
 
-# Enforce a strict structural contract at the model level
-class TransportFareSchema(BaseModel):
-    train_fares: List[int] = Field(description="List of found train fare numbers in INR. Empty list if none found.")
-    bus_fares: List[int] = Field(description="List of found bus fare numbers in INR. Empty list if none found.")
-    train_avg: int = Field(description="Calculated average train fare as an integer. 0 if none found.")
-    bus_avg: int = Field(description="Calculated average bus fare as an integer. 0 if none found.")
-    overall_avg: int = Field(description="Overall typical average fare for a one-way trip as an integer.")
-    sources: List[str] = Field(description="Websites or sources referenced during the live grounding check.")
+def _extract_json(text):
+    """Strip markdown fences and parse the first JSON object found in the text."""
+    text = text.strip()
+    text = re.sub(r"^```json\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
+    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if match:
+        text = match.group(0)
+    return json.loads(text)
 
 
 def estimate_transport_fares(origin: str, destination: str) -> dict:
     """
     Uses Gemini with Google Search grounding to find CURRENT train and bus
-    fares between two cities. Enforces a strict JSON response schema.
+    fares between two cities.
     """
     client = _get_client()
     settings = get_settings()
 
-    prompt = f"""
-    Search the web for current one-way train and bus fares from {origin} to {destination} in India.
-    Gather real-world pricing data in INR. 
-    Populate the response schema accurately based on your search discoveries.
-    """
+    prompt = f"""Search the web for current one-way train and bus fares from {origin} to {destination} in India.
+
+Return ONLY a JSON object in this exact format, nothing else, no markdown fences, no explanation:
+{{"train_fares": [<fare numbers in INR>], "bus_fares": [<fare numbers in INR>], "train_avg": <integer>, "bus_avg": <integer>, "overall_avg": <integer>, "sources": [<source names>]}}
+
+If you cannot find fares for one mode, use an empty list and 0 for its average."""
 
     try:
         response = client.models.generate_content(
@@ -60,22 +63,20 @@ def estimate_transport_fares(origin: str, destination: str) -> dict:
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
-                # Enforce JSON output matching our exact structure
-                response_mime_type="application/json",
-                response_schema=TransportFareSchema,
             ),
         )
-        
-        text = (response.text or "").strip()
-        result = json.loads(text)
-        
-        # Inject metadata expectations for downstream code layers
+
+        text = response.text or ""
+        if not text.strip():
+            raise ValueError("Empty response from Gemini")
+
+        result = _extract_json(text)
         result.setdefault("origin", origin)
         result.setdefault("destination", destination)
         return result
 
     except Exception as e:
-        logger.error("Fare estimation failed structurally for %s -> %s: %s", origin, destination, e)
+        logger.error("Fare estimation failed for %s -> %s: %s", origin, destination, e)
         return {
             "error": f"Could not estimate fares: {e}",
             "train_fares": [],
@@ -94,12 +95,12 @@ def estimate_live_hotel_price(hotel_name: str, city: str) -> int:
     client = _get_client()
     settings = get_settings()
 
-    prompt = f"""
-    Search for the current average nightly room rate for {hotel_name} in {city}, India.
-    Return ONLY a single integer representing the price in INR (Rupees). 
-    Do not include symbols, commas, markdown, or extra text. Example: 7500
-    If you cannot find it, return 0.
-    """
+    prompt = f"""Search for the current average nightly room rate for {hotel_name} in {city}, India.
+
+Return ONLY a single integer representing the price in INR (Rupees).
+Do not include symbols, commas, markdown, or extra text. Example: 7500
+If you cannot find it, return 0."""
+
     try:
         response = client.models.generate_content(
             model=settings.agent_model,
@@ -108,13 +109,13 @@ def estimate_live_hotel_price(hotel_name: str, city: str) -> int:
                 tools=[types.Tool(google_search=types.GoogleSearch())],
             ),
         )
-        
+
         text = (response.text or "").strip()
         match = re.search(r"\d+", text)
         if match:
             price = int(match.group())
             return price if price > 0 else 3600
-        
+
         return 3600
     except Exception as e:
         logger.warning("Hotel price estimation failed for %s in %s: %s", hotel_name, city, e)

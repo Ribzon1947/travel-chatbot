@@ -262,6 +262,7 @@ class HotelListing(Base):
     description = Column(Text, nullable=True)
     amenities = Column(Text, nullable=True)          # comma-joined amenity list
     embedding = Column(Text, nullable=True)          # JSON-encoded float list
+    phone = Column(String(50), nullable=True)
     last_rate_seen = Column(Integer, nullable=True)  # last known nightly rate, for reference only
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.hotel_search import search_hotels, semantic_hotel_search, HotelSearchError
+from app.hotel_search import search_hotels, semantic_hotel_search, search_hotels_page, HotelSearchError
 from app.config import get_settings
 from app.schemas import ChatRequest, ChatResponse, DestinationPricing, DestinationCreate
 from app.chatbot import chat
@@ -177,6 +177,14 @@ async def refresh_hotels(city: str):
         return {"city": city, "refreshed": len(hotels), "hotels": hotels}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/api/hotels/search/page")
+async def hotel_search_page_endpoint(city: str, page_token: str | None = None):
+    try:
+        hotels, next_token = search_hotels_page(city, page_token=page_token)
+        return {"city": city, "hotels": hotels, "next_page_token": next_token}
+    except HotelSearchError as e:
+        raise HTTPException(status_code=502, detail=str(e))    
 
 
 # ── Static Files (CRITICAL: Keep at the very bottom as a fallback) ────────────
