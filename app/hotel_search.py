@@ -2,6 +2,10 @@
 Hotel Search Data Layer.
 Handles fetching real-world data from the Google Places API, caching it locally
 via SQLAlchemy, and providing an LLM-powered semantic RAG search over listings.
+
+Pricing: real per-night rates come from Gemini + Google Search grounding
+(estimate_live_hotel_price), fetched ONCE per hotel and cached -- not a
+flat formula based on Google's price_level tier.
 """
 
 import json
@@ -13,6 +17,7 @@ from google import genai
 from app.config import get_settings
 from app.database import SessionLocal
 from app.models import HotelListing
+from app.fare_estimator import estimate_live_hotel_price
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +25,21 @@ logger = logging.getLogger(__name__)
 class HotelSearchError(Exception):
     """Raised when Google Places API cannot return real hotel data."""
     pass
+
+
+def _get_real_rate(existing, name, city):
+    """
+    Returns a real per-night rate for a hotel.
+    Reuses the cached rate if we already fetched it before; otherwise makes
+    a live Gemini + Google Search call (one per NEW hotel only).
+    """
+    if existing and existing.last_rate_seen:
+        return existing.last_rate_seen
+    try:
+        return estimate_live_hotel_price(name, city)
+    except Exception as e:
+        logger.warning("Live rate lookup failed for %s in %s: %s", name, city, e)
+        return None
 
 
 def search_hotels(city, hotel_name=None):
@@ -86,18 +106,17 @@ def search_hotels(city, hotel_name=None):
             rating = item.get("rating")
             price_level = item.get("price_level", 2)
 
-            # Rough baseline estimate from Google's price_level tier (0-4).
-            # This is an ESTIMATE ONLY -- Google Places does not expose real booking rates.
-            estimated_rate = (price_level if price_level and price_level > 0 else 2) * 1800
-
             existing_listing = session.query(HotelListing).filter(
                 HotelListing.city.ilike(city),
                 HotelListing.name.ilike(name)
             ).first()
 
+            # Real per-night rate via Gemini + Search -- cached, not a flat formula
+            real_rate = _get_real_rate(existing_listing, name, city)
+
             if existing_listing:
                 existing_listing.description = address
-                existing_listing.last_rate_seen = estimated_rate
+                existing_listing.last_rate_seen = real_rate
                 existing_listing.last_updated = datetime.utcnow()
                 if hasattr(existing_listing, "rating"):
                     existing_listing.rating = rating
@@ -108,7 +127,7 @@ def search_hotels(city, hotel_name=None):
                     name=name,
                     description=address,
                     amenities="WiFi, AC, Pool, Parking" if price_level and price_level >= 3 else "WiFi, AC",
-                    last_rate_seen=estimated_rate,
+                    last_rate_seen=real_rate,
                     last_updated=datetime.utcnow()
                 )
                 if hasattr(db_hotel, "rating"):
@@ -121,8 +140,8 @@ def search_hotels(city, hotel_name=None):
                 "address": address,
                 "description": address,
                 "amenities": db_hotel.amenities,
-                "rate_per_night": estimated_rate,
-                "estimated_rate": estimated_rate,
+                "rate_per_night": real_rate,
+                "estimated_rate": real_rate,
                 "rating": rating,
             })
 
@@ -159,10 +178,8 @@ def _fetch_place_phone(place_id, api_key):
 def search_hotels_page(city, page_token=None):
     """
     Paginated hotel search using Google Places Text Search's native pagination.
-    Returns (hotels_list, next_page_token). Pass next_page_token back in on the
-    next call to get the following page. Google requires a short delay before
-    a page_token becomes valid -- if you get INVALID_REQUEST immediately after
-    receiving a token, retry once after ~2 seconds.
+    Returns (hotels_list, next_page_token). Real per-night rates come from
+    Gemini + Google Search (cached per hotel), not a flat price_level formula.
     """
     settings = get_settings()
     api_key = getattr(settings, "google_maps_key", None) or settings.google_ai_key
@@ -200,18 +217,18 @@ def search_hotels_page(city, page_token=None):
             rating = item.get("rating")
             price_level = item.get("price_level", 2)
             place_id = item.get("place_id")
-            estimated_rate = (price_level if price_level and price_level > 0 else 2) * 1800
 
             existing = session.query(HotelListing).filter(
                 HotelListing.city.ilike(city), HotelListing.name.ilike(name)
             ).first()
 
-            # Only fetch phone via an extra API call for hotels we haven't seen before
+            # Only fetch phone/rate via extra API calls for hotels we haven't seen before
             phone = existing.phone if existing and getattr(existing, "phone", None) else _fetch_place_phone(place_id, api_key)
+            real_rate = _get_real_rate(existing, name, city)
 
             if existing:
                 existing.description = address
-                existing.last_rate_seen = estimated_rate
+                existing.last_rate_seen = real_rate
                 existing.last_updated = datetime.utcnow()
                 existing.phone = phone
                 if hasattr(existing, "rating"):
@@ -221,7 +238,7 @@ def search_hotels_page(city, page_token=None):
                 db_hotel = HotelListing(
                     city=city, name=name, description=address,
                     amenities="WiFi, AC, Pool, Parking" if price_level and price_level >= 3 else "WiFi, AC",
-                    last_rate_seen=estimated_rate, phone=phone,
+                    last_rate_seen=real_rate, phone=phone,
                     last_updated=datetime.utcnow()
                 )
                 if hasattr(db_hotel, "rating"):
@@ -230,8 +247,8 @@ def search_hotels_page(city, page_token=None):
 
             hotels_list.append({
                 "name": name, "city": city, "address": address, "description": address,
-                "amenities": db_hotel.amenities, "rate_per_night": estimated_rate,
-                "estimated_rate": estimated_rate, "rating": rating, "phone": phone or "N/A",
+                "amenities": db_hotel.amenities, "rate_per_night": real_rate,
+                "estimated_rate": real_rate, "rating": rating, "phone": phone or "N/A",
             })
 
         session.commit()
