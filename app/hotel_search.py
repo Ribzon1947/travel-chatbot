@@ -18,7 +18,7 @@ import logging
 import requests
 import time
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
 from google import genai
 from app.config import get_settings
@@ -27,8 +27,6 @@ from app.models import HotelListing
 from app.fare_estimator import estimate_live_hotel_price
 
 logger = logging.getLogger(__name__)
-
-_MAX_WORKERS = 8  # concurrent network calls at once for rate/phone lookups
 
 
 class HotelSearchError(Exception):
@@ -60,32 +58,52 @@ def _fetch_place_phone(place_id, api_key):
         return None
 
 
-def _fetch_details_concurrently(pending, city, api_key, need_phone):
+def _fetch_details_concurrently(pending, city, api_key, need_phone, overall_timeout=18):
     """
     pending: list of dicts, each with at least {"name", "place_id"} for hotels
     that need a fresh rate (and optionally phone) lookup.
     Returns: dict name -> {"rate": int|None, "phone": str|None}
-    Runs all lookups in parallel via a thread pool since each is a slow,
-    independent network call.
+
+    Rate and phone are submitted as SEPARATE tasks (not one combined task per
+    hotel) so the thread pool can work on both at once instead of doing them
+    sequentially within a single hotel's thread -- this roughly halves total
+    time for hotels that need both.
+
+    A hard overall_timeout bounds total wait time so this function always
+    returns within a predictable window, even if some lookups are still
+    running (those simply come back as None -- better than the whole
+    request timing out / 502ing).
     """
-    results = {}
+    results = {name_item["name"]: {"rate": None, "phone": None} for name_item in pending}
     if not pending:
         return results
 
-    def _fetch_one(item):
-        name = item["name"]
-        rate = _fetch_rate_only(name, city)
-        phone = _fetch_place_phone(item.get("place_id"), api_key) if need_phone else None
-        return name, rate, phone
+    start_ts = time.time()
+    workers = min(max(len(pending) * (2 if need_phone else 1), 8), 20)
+    logger.info("Starting concurrent hotel detail fetches for %d hotels (max_workers=%d)", len(pending), workers)
 
-    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
-        futures = [executor.submit(_fetch_one, item) for item in pending]
-        for future in as_completed(futures):
-            try:
-                name, rate, phone = future.result()
-                results[name] = {"rate": rate, "phone": phone}
-            except Exception as e:
-                logger.warning("Concurrent hotel detail fetch failed: %s", e)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {}
+        for item in pending:
+            name = item["name"]
+            rate_future = executor.submit(_fetch_rate_only, name, city)
+            future_map[rate_future] = (name, "rate")
+            if need_phone:
+                phone_future = executor.submit(_fetch_place_phone, item.get("place_id"), api_key)
+                future_map[phone_future] = (name, "phone")
+
+        try:
+            for future in as_completed(future_map, timeout=overall_timeout):
+                name, kind = future_map[future]
+                try:
+                    results[name][kind] = future.result()
+                except Exception as e:
+                    logger.warning("Fetch failed for %s (%s): %s", name, kind, e)
+        except TimeoutError:
+            logger.warning("Overall detail-fetch timeout hit after %.1fs -- returning partial results", overall_timeout)
+
+    total_time = time.time() - start_ts
+    logger.info("Hotel detail fetches finished (or timed out) after %.2fs total", total_time)
 
     return results
 
@@ -243,9 +261,10 @@ def search_hotels_page(city, page_token=None):
         response.raise_for_status()
         data = response.json()
 
-        
+        # Google's next_page_token needs a few seconds to activate. A single
+        # retry isn't always enough -- retry a few times with increasing delay.
         if page_token and data.get("status") == "INVALID_REQUEST":
-            for delay in (2, 3, 5):
+            for delay in (2, 3):
                 time.sleep(delay)
                 response = requests.get(url, params=params, timeout=10)
                 response.raise_for_status()
@@ -259,7 +278,7 @@ def search_hotels_page(city, page_token=None):
     status = data.get("status", "OK")
     if status in ("REQUEST_DENIED", "INVALID_REQUEST", "OVER_QUERY_LIMIT"):
         if page_token and status == "INVALID_REQUEST":
-            error_msg = "The pagination token expired or wasn't ready yet. Please try clicking Next again."
+            error_msg = "The pagination token still wasn't ready after several retries. Please try clicking Next again in a few seconds."
         else:
             error_msg = data.get("error_message", "Check API key, billing, and that 'Places API' (legacy) is enabled.")
         raise HotelSearchError(f"Google Places API error ({status}): {error_msg}")

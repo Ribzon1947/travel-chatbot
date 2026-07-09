@@ -136,24 +136,25 @@ async def hotels_page():
 
 @app.get("/api/hotels/search")
 async def hotel_search_endpoint(city: str, query: str | None = None, hotel_name: str | None = None):
+    loop = asyncio.get_event_loop()
     try:
         if hotel_name:
-            hotels = search_hotels(city, hotel_name=hotel_name)
+            hotels = await loop.run_in_executor(None, search_hotels, city, hotel_name)
         elif query:
-            hotels = semantic_hotel_search(query, city=city)
+            hotels = await loop.run_in_executor(None, semantic_hotel_search, query, city)
         else:
-            hotels = search_hotels(city)
+            hotels = await loop.run_in_executor(None, search_hotels, city)
         return {"city": city, "hotels": hotels}
     except HotelSearchError as e:
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/api/hotels/search/page")
 async def hotel_search_page_endpoint(city: str, page_token: str | None = None):
     try:
-        hotels, next_token = search_hotels_page(city, page_token=page_token)
+        loop = asyncio.get_event_loop()
+        hotels, next_token = await loop.run_in_executor(None, search_hotels_page, city, page_token)
         return {"city": city, "hotels": hotels, "next_page_token": next_token}
     except HotelSearchError as e:
         raise HTTPException(status_code=502, detail=str(e))
