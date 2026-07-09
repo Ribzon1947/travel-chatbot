@@ -12,8 +12,8 @@ import json
 import logging
 import requests
 from datetime import datetime
-import time
 import requests
+import time
 from google import genai
 from app.config import get_settings
 from app.database import SessionLocal
@@ -205,7 +205,7 @@ def search_hotels_page(city, page_token=None):
         
         # 3. FIX: Add the retry logic for Google's pagination delay (INVALID_REQUEST)
         if page_token and data.get("status") == "INVALID_REQUEST":
-            time.sleep(1.5) # Wait for Google's token to become active
+             time.sleep(5)
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
