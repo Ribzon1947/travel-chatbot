@@ -175,9 +175,6 @@ def _fetch_place_phone(place_id, api_key):
         logger.warning("Phone lookup failed for place_id %s: %s", place_id, e)
         return None
 
-
-import time # Ensure this is imported at the top of your file!
-
 def search_hotels_page(city, page_token=None):
     """
     Paginated hotel search using Google Places Text Search's native pagination.
