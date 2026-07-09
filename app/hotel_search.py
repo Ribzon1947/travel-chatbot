@@ -6,14 +6,20 @@ via SQLAlchemy, and providing an LLM-powered semantic RAG search over listings.
 Pricing: real per-night rates come from Gemini + Google Search grounding
 (estimate_live_hotel_price), fetched ONCE per hotel and cached -- not a
 flat formula based on Google's price_level tier.
+
+Performance: rate + phone lookups for NEW hotels are fetched CONCURRENTLY
+(thread pool) instead of one-by-one, since each is a slow network call and
+they are all independent of each other. DB writes stay sequential since a
+SQLAlchemy session is not thread-safe.
 """
 
 import json
 import logging
 import requests
-from datetime import datetime
-import requests
 import time
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from google import genai
 from app.config import get_settings
 from app.database import SessionLocal
@@ -22,25 +28,66 @@ from app.fare_estimator import estimate_live_hotel_price
 
 logger = logging.getLogger(__name__)
 
+_MAX_WORKERS = 8  # concurrent network calls at once for rate/phone lookups
+
 
 class HotelSearchError(Exception):
     """Raised when Google Places API cannot return real hotel data."""
     pass
 
 
-def _get_real_rate(existing, name, city):
-    """
-    Returns a real per-night rate for a hotel.
-    Reuses the cached rate if we already fetched it before; otherwise makes
-    a live Gemini + Google Search call (one per NEW hotel only).
-    """
-    if existing and existing.last_rate_seen:
-        return existing.last_rate_seen
+def _fetch_rate_only(name, city):
     try:
         return estimate_live_hotel_price(name, city)
     except Exception as e:
         logger.warning("Live rate lookup failed for %s in %s: %s", name, city, e)
         return None
+
+
+def _fetch_place_phone(place_id, api_key):
+    """Fetch a hotel's contact number via Google Place Details."""
+    if not place_id:
+        return None
+    try:
+        url = "https://maps.googleapis.com/maps/api/place/details/json"
+        params = {"place_id": place_id, "fields": "formatted_phone_number", "key": api_key}
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("result", {}).get("formatted_phone_number")
+    except Exception as e:
+        logger.warning("Phone lookup failed for place_id %s: %s", place_id, e)
+        return None
+
+
+def _fetch_details_concurrently(pending, city, api_key, need_phone):
+    """
+    pending: list of dicts, each with at least {"name", "place_id"} for hotels
+    that need a fresh rate (and optionally phone) lookup.
+    Returns: dict name -> {"rate": int|None, "phone": str|None}
+    Runs all lookups in parallel via a thread pool since each is a slow,
+    independent network call.
+    """
+    results = {}
+    if not pending:
+        return results
+
+    def _fetch_one(item):
+        name = item["name"]
+        rate = _fetch_rate_only(name, city)
+        phone = _fetch_place_phone(item.get("place_id"), api_key) if need_phone else None
+        return name, rate, phone
+
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+        futures = [executor.submit(_fetch_one, item) for item in pending]
+        for future in as_completed(futures):
+            try:
+                name, rate, phone = future.result()
+                results[name] = {"rate": rate, "phone": phone}
+            except Exception as e:
+                logger.warning("Concurrent hotel detail fetch failed: %s", e)
+
+    return results
 
 
 def search_hotels(city, hotel_name=None):
@@ -100,6 +147,21 @@ def search_hotels(city, hotel_name=None):
         if status == "ZERO_RESULTS" or not results:
             return []  # Genuinely no hotels found -- not an error, and NOT fake data.
 
+        # Look up existing cache rows in ONE query instead of one-per-hotel
+        names = [item.get("name") for item in results]
+        existing_rows = session.query(HotelListing).filter(
+            HotelListing.city.ilike(city), HotelListing.name.in_(names)
+        ).all()
+        existing_by_name = {row.name: row for row in existing_rows}
+
+        # Figure out which hotels genuinely need a fresh (slow) rate lookup
+        pending = [
+            {"name": item.get("name"), "place_id": item.get("place_id")}
+            for item in results
+            if not (existing_by_name.get(item.get("name")) and existing_by_name[item.get("name")].last_rate_seen)
+        ]
+        fetched = _fetch_details_concurrently(pending, city, api_key, need_phone=False)
+
         hotels_list = []
         for item in results:
             name = item.get("name")
@@ -107,13 +169,11 @@ def search_hotels(city, hotel_name=None):
             rating = item.get("rating")
             price_level = item.get("price_level", 2)
 
-            existing_listing = session.query(HotelListing).filter(
-                HotelListing.city.ilike(city),
-                HotelListing.name.ilike(name)
-            ).first()
-
-            # Real per-night rate via Gemini + Search -- cached, not a flat formula
-            real_rate = _get_real_rate(existing_listing, name, city)
+            existing_listing = existing_by_name.get(name)
+            if existing_listing and existing_listing.last_rate_seen:
+                real_rate = existing_listing.last_rate_seen
+            else:
+                real_rate = fetched.get(name, {}).get("rate")
 
             if existing_listing:
                 existing_listing.description = address
@@ -160,39 +220,19 @@ def search_hotels(city, hotel_name=None):
         session.close()
 
 
-def _fetch_place_phone(place_id, api_key):
-    """Fetch a hotel's contact number via Google Place Details (one extra call per NEW hotel only)."""
-    if not place_id:
-        return None
-    try:
-        url = "https://maps.googleapis.com/maps/api/place/details/json"
-        params = {"place_id": place_id, "fields": "formatted_phone_number", "key": api_key}
-        resp = requests.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("result", {}).get("formatted_phone_number")
-    except Exception as e:
-        logger.warning("Phone lookup failed for place_id %s: %s", place_id, e)
-        return None
-
 def search_hotels_page(city, page_token=None):
     """
     Paginated hotel search using Google Places Text Search's native pagination.
-    Returns (hotels_list, next_page_token). Real per-night rates come from
-    Gemini + Google Search (cached per hotel), not a flat price_level formula.
+    Returns (hotels_list, next_page_token). Real per-night rates and phone
+    numbers for NEW hotels are fetched concurrently, not one-by-one.
     """
     settings = get_settings()
-    
-    # 1. Safely grab the API key from your environment/settings
     api_key = getattr(settings, "google_maps_key", None) or settings.google_ai_key
     if not api_key:
         raise HotelSearchError("No Google API key configured (set GOOGLE_MAPS_KEY or GOOGLE_AI_KEY on Render).")
 
     url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-    
-    # 2. FIX: Use the api_key variable defined above, do not hardcode the raw string here
     params = {"key": api_key}
-    
     if page_token:
         params["pagetoken"] = page_token
     else:
@@ -202,20 +242,24 @@ def search_hotels_page(city, page_token=None):
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
-        # 3. FIX: Add the retry logic for Google's pagination delay (INVALID_REQUEST)
+
+        # Google's next_page_token needs a few seconds to activate. Retrying
+        # instantly will fail the same way -- wait, then retry once.
         if page_token and data.get("status") == "INVALID_REQUEST":
-            time.sleep(5)
+            time.sleep(3)
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
-            
+
     except Exception as api_err:
         raise HotelSearchError(f"Google Places API request failed: {api_err}") from api_err
 
     status = data.get("status", "OK")
     if status in ("REQUEST_DENIED", "INVALID_REQUEST", "OVER_QUERY_LIMIT"):
-        error_msg = data.get("error_message", "Check API key, billing, and that 'Places API' (legacy) is enabled.")
+        if page_token and status == "INVALID_REQUEST":
+            error_msg = "The pagination token expired or wasn't ready yet. Please try clicking Next again."
+        else:
+            error_msg = data.get("error_message", "Check API key, billing, and that 'Places API' (legacy) is enabled.")
         raise HotelSearchError(f"Google Places API error ({status}): {error_msg}")
 
     results = data.get("results", [])
@@ -224,20 +268,40 @@ def search_hotels_page(city, page_token=None):
     session = SessionLocal()
     hotels_list = []
     try:
+        names = [item.get("name") for item in results]
+        existing_rows = session.query(HotelListing).filter(
+            HotelListing.city.ilike(city), HotelListing.name.in_(names)
+        ).all()
+        existing_by_name = {row.name: row for row in existing_rows}
+
+        # Only fetch rate/phone concurrently for hotels missing that data
+        pending = [
+            {"name": item.get("name"), "place_id": item.get("place_id")}
+            for item in results
+            if not (
+                existing_by_name.get(item.get("name"))
+                and existing_by_name[item.get("name")].last_rate_seen
+                and getattr(existing_by_name[item.get("name")], "phone", None)
+            )
+        ]
+        fetched = _fetch_details_concurrently(pending, city, api_key, need_phone=True)
+
         for item in results:
             name = item.get("name")
             address = item.get("formatted_address", "")
             rating = item.get("rating")
             price_level = item.get("price_level", 2)
-            place_id = item.get("place_id")
 
-            existing = session.query(HotelListing).filter(
-                HotelListing.city.ilike(city), HotelListing.name.ilike(name)
-            ).first()
+            existing = existing_by_name.get(name)
+            if existing and existing.last_rate_seen:
+                real_rate = existing.last_rate_seen
+            else:
+                real_rate = fetched.get(name, {}).get("rate")
 
-            # Only fetch phone/rate via extra API calls for hotels we haven't seen before
-            phone = existing.phone if existing and getattr(existing, "phone", None) else _fetch_place_phone(place_id, api_key)
-            real_rate = _get_real_rate(existing, name, city)
+            if existing and getattr(existing, "phone", None):
+                phone = existing.phone
+            else:
+                phone = fetched.get(name, {}).get("phone")
 
             if existing:
                 existing.description = address
@@ -272,6 +336,7 @@ def search_hotels_page(city, page_token=None):
         session.close()
 
     return hotels_list, next_page_token
+
 
 def semantic_hotel_search(query, city):
     """
