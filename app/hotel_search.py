@@ -205,7 +205,7 @@ def search_hotels_page(city, page_token=None):
         
         # 3. FIX: Add the retry logic for Google's pagination delay (INVALID_REQUEST)
         if page_token and data.get("status") == "INVALID_REQUEST":
-             time.sleep(5)
+            time.sleep(5)
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
