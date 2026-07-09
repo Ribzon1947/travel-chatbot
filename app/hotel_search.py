@@ -243,13 +243,15 @@ def search_hotels_page(city, page_token=None):
         response.raise_for_status()
         data = response.json()
 
-        # Google's next_page_token needs a few seconds to activate. Retrying
-        # instantly will fail the same way -- wait, then retry once.
+        
         if page_token and data.get("status") == "INVALID_REQUEST":
-            time.sleep(3)
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
+            for delay in (2, 3, 5):
+                time.sleep(delay)
+                response = requests.get(url, params=params, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                if data.get("status") != "INVALID_REQUEST":
+                    break
 
     except Exception as api_err:
         raise HotelSearchError(f"Google Places API request failed: {api_err}") from api_err
