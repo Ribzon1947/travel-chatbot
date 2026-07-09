@@ -12,7 +12,8 @@ import json
 import logging
 import requests
 from datetime import datetime
-
+import time
+import requests
 from google import genai
 from app.config import get_settings
 from app.database import SessionLocal
@@ -175,6 +176,8 @@ def _fetch_place_phone(place_id, api_key):
         return None
 
 
+import time # Ensure this is imported at the top of your file!
+
 def search_hotels_page(city, page_token=None):
     """
     Paginated hotel search using Google Places Text Search's native pagination.
@@ -182,12 +185,17 @@ def search_hotels_page(city, page_token=None):
     Gemini + Google Search (cached per hotel), not a flat price_level formula.
     """
     settings = get_settings()
+    
+    # 1. Safely grab the API key from your environment/settings
     api_key = getattr(settings, "google_maps_key", None) or settings.google_ai_key
     if not api_key:
         raise HotelSearchError("No Google API key configured (set GOOGLE_MAPS_KEY or GOOGLE_AI_KEY on Render).")
 
     url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+    
+    # 2. FIX: Use the api_key variable defined above, do not hardcode the raw string here
     params = {"key": api_key}
+    
     if page_token:
         params["pagetoken"] = page_token
     else:
@@ -197,6 +205,14 @@ def search_hotels_page(city, page_token=None):
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
+        
+        # 3. FIX: Add the retry logic for Google's pagination delay (INVALID_REQUEST)
+        if page_token and data.get("status") == "INVALID_REQUEST":
+            time.sleep(1.5) # Wait for Google's token to become active
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
     except Exception as api_err:
         raise HotelSearchError(f"Google Places API request failed: {api_err}") from api_err
 
@@ -259,7 +275,6 @@ def search_hotels_page(city, page_token=None):
         session.close()
 
     return hotels_list, next_page_token
-
 
 def semantic_hotel_search(query, city):
     """
