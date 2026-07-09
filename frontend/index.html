@@ -295,6 +295,7 @@
     <p>Instant trip expense calculator</p>
   </div>
   <div class="hdr-right">
+    <a href="/hotels" class="admin-link">🏨 Hotels</a>
     <a href="/admin" class="admin-link">⚙️ Admin</a>
     <div class="status-dot" title="Online"></div>
   </div>
@@ -318,30 +319,6 @@
   <div class="pill">🚕 Cab <b id="pill-cab">₹3,000 / day</b></div>
   <div class="pill">🍽️ Meals <b id="pill-meals">₹700 / person / day</b></div>
   <div class="pill">🎫 Tickets <b id="pill-ticket">₹2,500 / person</b></div>
-</div>
-
-<!-- Hotel Search Widget -->
-<div class="hotel-widget" style="width:100%;max-width:780px;padding:0 16px 8px;">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.07);">
-    <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px;">🏨 Find Hotels</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-      <input type="text" id="hotel-city" placeholder="City (e.g. Goa)"
-             style="flex:1;min-width:120px;border:1.5px solid var(--border);border-radius:20px;padding:6px 14px;font-size:13px;font-family:inherit;outline:none;" />
-      <button id="hotel-search-btn" onclick="searchHotelsWidget()"
-              style="background:var(--blue);color:#fff;border:none;border-radius:20px;padding:6px 18px;font-size:13px;font-weight:500;cursor:pointer;">
-        Search
-      </button>
-    </div>
-    <div id="hotel-results">
-      <p style="color:var(--muted);font-size:12px;">Enter a city to find hotels.</p>
-    </div>
-    <div id="hotel-pagination" style="display:none;text-align:center;margin-top:12px;">
-      <button id="hotel-next-btn" onclick="loadNextHotelPage()"
-              style="background:var(--surface);border:1.5px solid var(--blue);color:var(--blue);border-radius:20px;padding:7px 20px;font-size:13px;font-weight:500;cursor:pointer;">
-        Next Page →
-      </button>
-    </div>
-  </div>
 </div>
 
 <div id="chat"></div>
@@ -560,88 +537,6 @@ inputEl.addEventListener('input', () => {
 sugsEl.querySelectorAll('.sug-btn').forEach(btn => {
   btn.addEventListener('click', () => send(btn.textContent.trim()));
 });
-
-/* ── Hotel search widget (with pagination + phone) ───────────────────── */
-let hotelCity = '';
-let hotelNextToken = null;
-
-async function searchHotelsWidget() {
-  const city = document.getElementById('hotel-city').value.trim();
-  if (!city) {
-    document.getElementById('hotel-results').innerHTML = '<p style="color:#d93025;font-size:12px;">Please enter a city.</p>';
-    return;
-  }
-  hotelCity = city;
-  hotelNextToken = null;
-  await fetchHotelPage();
-}
-
-async function loadNextHotelPage() {
-  if (!hotelNextToken) return;
-  await fetchHotelPage(hotelNextToken);
-}
-
-async function fetchHotelPage(pageToken = null) {
-  const btn = document.getElementById('hotel-search-btn');
-  const nextBtn = document.getElementById('hotel-next-btn');
-  const resultsEl = document.getElementById('hotel-results');
-  const pagination = document.getElementById('hotel-pagination');
-
-  btn.disabled = true;
-  nextBtn.disabled = true;
-  resultsEl.innerHTML = '<p style="color:var(--muted);font-size:12px;">Searching hotels…</p>';
-
-  try {
-    const params = new URLSearchParams({ city: hotelCity });
-    if (pageToken) params.set('page_token', pageToken);
-
-    const res = await fetch(`${BACKEND}/api/hotels/search/page?${params.toString()}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      resultsEl.innerHTML = `<p style="color:#d93025;font-size:12px;">${err.detail || 'Search failed'}</p>`;
-      pagination.style.display = 'none';
-      return;
-    }
-
-    const data = await res.json();
-    renderHotelResults(data.hotels || []);
-    hotelNextToken = data.next_page_token || null;
-    pagination.style.display = hotelNextToken ? 'block' : 'none';
-  } catch (e) {
-    resultsEl.innerHTML = `<p style="color:#d93025;font-size:12px;">Network error: ${e.message}</p>`;
-    pagination.style.display = 'none';
-  } finally {
-    btn.disabled = false;
-    nextBtn.disabled = false;
-  }
-}
-
-function renderHotelResults(hotels) {
-  const resultsEl = document.getElementById('hotel-results');
-
-  if (!hotels.length) {
-    resultsEl.innerHTML = '<p style="color:var(--muted);font-size:12px;">No hotels found for this search.</p>';
-    return;
-  }
-
-  let html = `<table class="cost-table"><thead><tr>
-      <th>Hotel</th><th>Rate/Night</th><th>Rating</th><th>Contact</th><th>Address</th>
-    </tr></thead><tbody>`;
-
-  for (const h of hotels) {
-    const rate = h.rate_per_night || h.estimated_rate;
-    html += `<tr>
-      <td>${h.name || ''}</td>
-      <td>${rate ? '₹' + Number(rate).toLocaleString() : 'N/A'}</td>
-      <td>${h.rating || '—'}</td>
-      <td>${h.phone || 'N/A'}</td>
-      <td style="font-size:12px;color:var(--muted)">${h.address || ''}</td>
-    </tr>`;
-  }
-
-  html += '</tbody></table>';
-  resultsEl.innerHTML = html;
-}
 
 /* ── Init ────────────────────────────────────────────────────────────── */
 loadDestinations();

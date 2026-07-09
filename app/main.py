@@ -127,6 +127,11 @@ async def admin_page():
     return FileResponse("frontend/admin.html")
 
 
+@app.get("/hotels")
+async def hotels_page():
+    return FileResponse("frontend/hotels.html")
+
+
 # ── Public: hotel search ───────────────────────────────────────────────────────
 
 @app.get("/api/hotels/search")
@@ -143,6 +148,15 @@ async def hotel_search_endpoint(city: str, query: str | None = None, hotel_name:
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/hotels/search/page")
+async def hotel_search_page_endpoint(city: str, page_token: str | None = None):
+    try:
+        hotels, next_token = search_hotels_page(city, page_token=page_token)
+        return {"city": city, "hotels": hotels, "next_page_token": next_token}
+    except HotelSearchError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 # ── Admin: browse cached hotels + force refresh ────────────────────────────────
@@ -177,14 +191,6 @@ async def refresh_hotels(city: str):
         return {"city": city, "refreshed": len(hotels), "hotels": hotels}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
-@app.get("/api/hotels/search/page")
-async def hotel_search_page_endpoint(city: str, page_token: str | None = None):
-    try:
-        hotels, next_token = search_hotels_page(city, page_token=page_token)
-        return {"city": city, "hotels": hotels, "next_page_token": next_token}
-    except HotelSearchError as e:
-        raise HTTPException(status_code=502, detail=str(e))    
 
 
 # ── Static Files (CRITICAL: Keep at the very bottom as a fallback) ────────────
