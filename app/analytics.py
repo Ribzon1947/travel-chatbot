@@ -204,8 +204,8 @@ def increment_destination_query(destination_name: str) -> None:
                 DestinationPopularity.destination_id == dest.id
             ).first()
             if pop:
-                pop.query_count += 1
-                pop.last_updated = datetime.utcnow()
+                pop.query_count = pop.query_count + 1  # type: ignore
+                pop.last_updated = datetime.utcnow()  # type: ignore
             else:
                 pop = DestinationPopularity(
                     destination_id=dest.id,
@@ -230,8 +230,8 @@ def increment_destination_booking(destination_name: str) -> None:
                 DestinationPopularity.destination_id == dest.id
             ).first()
             if pop:
-                pop.booking_count += 1
-                pop.last_updated = datetime.utcnow()
+                pop.booking_count = pop.booking_count + 1  # type: ignore
+                pop.last_updated = datetime.utcnow()  # type: ignore
             else:
                 pop = DestinationPopularity(
                     destination_id=dest.id,
@@ -305,13 +305,9 @@ def update_daily_analytics(target_date: Optional[date] = None) -> None:
         # Upsert daily analytics
         analytics = db.query(DailyAnalytics).filter(DailyAnalytics.date == target_date).first()
         if analytics:
-            analytics.total_users = total_users
-            analytics.active_sessions = active_sessions
-            analytics.total_calculations = total_calculations
-            analytics.total_revenue = int(total_revenue) if total_revenue else 0
-            analytics.avg_trip_cost = int(avg_trip_cost) if avg_trip_cost else 0
-            analytics.popular_destination = popular_dest
+           analytics_record = DailyAnalytics(...)
         else:
+            daily_report = DailyAnalytics(date=target_date)
             analytics = DailyAnalytics(
                 date=target_date,
                 total_users=total_users,

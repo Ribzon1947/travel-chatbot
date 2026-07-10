@@ -4,8 +4,8 @@ Handles user creation, session tracking, and conversation history.
 """
 import uuid
 import logging
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime
+from typing import Optional, Any
 
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # ─── User Management ─────────────────────────────────────────────────────────
 
-def get_or_create_user(session: Session, user_id: str, email: str = None, name: str = None) -> User:
+def get_or_create_user(session: Session, user_id: str, email: Optional[str] = None, name: Optional[str] = None) -> User:
     """Get existing user or create a new one."""
     user = session.query(User).filter(User.user_id == user_id).first()
     if user is None:
@@ -38,7 +38,7 @@ def update_user_activity(user_id: str) -> None:
     try:
         user = db.query(User).filter(User.user_id == user_id).first()
         if user:
-            user.last_active = datetime.utcnow()
+            user.last_active = datetime.utcnow()  # type: ignore
             db.commit()
     except Exception as e:
         logger.error(f"Error updating user activity: {e}")
@@ -58,15 +58,16 @@ def get_user_by_id(user_id: str) -> Optional[User]:
 
 # ─── Session Management ──────────────────────────────────────────────────────
 
-def create_session(user_id: str, from_location: str = None, to_location: str = None) -> str:
+def create_session(user_id: str, from_location: Optional[str] = None, to_location: Optional[str] = None) -> str:
     """Create a new session for a user."""
     db = SessionLocal()
     try:
         user = get_or_create_user(db, user_id)
         session_token = str(uuid.uuid4())
         
+        user_id_val: Any = user.id  # type: ignore
         session = DBSession(
-            user_id=user.id,
+            user_id=user_id_val,
             session_token=session_token,
             from_location=from_location,
             to_location=to_location,
@@ -90,9 +91,15 @@ def end_session(session_token: str) -> None:
     try:
         session = db.query(DBSession).filter(DBSession.session_token == session_token).first()
         if session:
-            session.ended_at = datetime.utcnow()
-            session.is_active = False
-            session.duration_seconds = int((session.ended_at - session.started_at).total_seconds())
+            ended_at = datetime.utcnow()
+            session.ended_at = ended_at  # type: ignore
+            session.is_active = False  # type: ignore
+            
+            started_at: Any = session.started_at  # type: ignore
+            if started_at:
+                duration = (ended_at - started_at).total_seconds()
+                session.duration_seconds = int(duration)  # type: ignore
+                
             db.commit()
             logger.info(f"Ended session {session_token}")
     except Exception as e:
@@ -117,8 +124,9 @@ def get_user_sessions(user_id: str, limit: int = 10) -> list:
     try:
         user = db.query(User).filter(User.user_id == user_id).first()
         if user:
+            user_id_val: Any = user.id  # type: ignore
             return db.query(DBSession).filter(
-                DBSession.user_id == user.id
+                DBSession.user_id == user_id_val
             ).order_by(DBSession.started_at.desc()).limit(limit).all()
         return []
     finally:
@@ -127,7 +135,7 @@ def get_user_sessions(user_id: str, limit: int = 10) -> list:
 
 # ─── Chat Conversation Management ────────────────────────────────────────────
 
-def create_conversation(session_token: str, title: str = None) -> Optional[int]:
+def create_conversation(session_token: str, title: Optional[str] = None) -> Optional[int]:
     """Create a new chat conversation within a session."""
     db = SessionLocal()
     try:
@@ -136,15 +144,18 @@ def create_conversation(session_token: str, title: str = None) -> Optional[int]:
             logger.warning(f"Session not found: {session_token}")
             return None
         
+        session_id_val: Any = session.id  # type: ignore
         conversation = ChatConversation(
-            session_id=session.id,
+            session_id=session_id_val,
             conversation_title=title or f"Conversation {datetime.utcnow().isoformat()}",
             message_count=0
         )
         db.add(conversation)
         db.commit()
-        logger.info(f"Created conversation {conversation.id} in session {session_token}")
-        return conversation.id
+        
+        conv_id: Any = conversation.id  # type: ignore
+        logger.info(f"Created conversation {conv_id} in session {session_token}")
+        return conv_id
     except Exception as e:
         logger.error(f"Error creating conversation: {e}")
         db.rollback()
@@ -168,10 +179,14 @@ def add_message(conversation_id: int, sender_role: str, message_text: str) -> Op
             message_text=message_text
         )
         db.add(message)
-        conversation.message_count += 1
-        conversation.updated_at = datetime.utcnow()
+        
+        current_count: Any = conversation.message_count or 0  # type: ignore
+        conversation.message_count = current_count + 1  # type: ignore
+        conversation.updated_at = datetime.utcnow()  # type: ignore
         db.commit()
-        return message.id
+        
+        msg_id: Any = message.id  # type: ignore
+        return msg_id
     except Exception as e:
         logger.error(f"Error adding message: {e}")
         db.rollback()
@@ -197,8 +212,9 @@ def get_session_conversations(session_token: str) -> list:
     try:
         session = db.query(DBSession).filter(DBSession.session_token == session_token).first()
         if session:
+            session_id_val: Any = session.id  # type: ignore
             return db.query(ChatConversation).filter(
-                ChatConversation.session_id == session.id
+                ChatConversation.session_id == session_id_val
             ).order_by(ChatConversation.created_at.desc()).all()
         return []
     finally:
@@ -221,8 +237,9 @@ def record_trip_calculation(
             return None
         
         import json
+        session_id_val: Any = session.id  # type: ignore
         trip_calc = TripCalculation(
-            session_id=session.id,
+            session_id=session_id_val,
             calculation_type=calculation_type,
             num_people=calculation_data.get("num_people"),
             kids_under_7=calculation_data.get("kids_under_7", 0),
@@ -237,7 +254,9 @@ def record_trip_calculation(
         )
         db.add(trip_calc)
         db.commit()
-        return trip_calc.id
+        
+        calc_id: Any = trip_calc.id  # type: ignore
+        return calc_id
     except Exception as e:
         logger.error(f"Error recording trip calculation: {e}")
         db.rollback()
@@ -252,8 +271,9 @@ def get_session_calculations(session_token: str) -> list:
     try:
         session = db.query(DBSession).filter(DBSession.session_token == session_token).first()
         if session:
+            session_id_val: Any = session.id  # type: ignore
             return db.query(TripCalculation).filter(
-                TripCalculation.session_id == session.id
+                TripCalculation.session_id == session_id_val
             ).order_by(TripCalculation.calculated_at.desc()).all()
         return []
     finally:
@@ -270,16 +290,17 @@ def get_user_statistics(user_id: str) -> dict:
         if not user:
             return {}
         
-        total_sessions = db.query(DBSession).filter(DBSession.user_id == user.id).count()
+        user_id_val: Any = user.id  # type: ignore
+        total_sessions = db.query(DBSession).filter(DBSession.user_id == user_id_val).count()
         active_sessions = db.query(DBSession).filter(
-            DBSession.user_id == user.id,
+            DBSession.user_id == user_id_val,
             DBSession.is_active == True
         ).count()
         total_messages = db.query(ChatMessage).join(ChatConversation).join(DBSession).filter(
-            DBSession.user_id == user.id
+            DBSession.user_id == user_id_val
         ).count()
         total_calculations = db.query(TripCalculation).join(DBSession).filter(
-            DBSession.user_id == user.id
+            DBSession.user_id == user_id_val
         ).count()
         
         return {
