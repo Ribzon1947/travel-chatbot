@@ -326,20 +326,20 @@ def _sync_chat(message: str, history: list[dict], from_loc: str, to_loc: str) ->
         result_parts = []
         for fc in fn_calls:
             try:
+                args = dict(fc.args) if fc.args else {}
+
                 if fc.name == "calculate_trip_cost":
                     # Remove destination from args if present, always use context's to_loc
-                    args = dict(fc.args)
                     args.pop("destination", None)
                     args.pop("from_location", None)
                     result = calculate_trip_cost(**args, destination=to_loc, from_location=from_loc or "Default")
                 elif fc.name == "compare_destinations":
-                    result = {"comparisons": compare_destinations(**fc.args)}
+                    result = {"comparisons": compare_destinations(**args)}
                 elif fc.name == "calculate_multi_city_trip":
-                    result = calculate_multi_city_trip(**fc.args)
+                    result = calculate_multi_city_trip(**args)
                 elif fc.name == "estimate_transport_fares":
-                    result = estimate_transport_fares(**fc.args)
+                    result = estimate_transport_fares(**args)
                 elif fc.name == "find_hotels":
-                    args = dict(fc.args)
                     if args.get("hotel_name"):
                         result = {"hotels": search_hotels(args["city"], hotel_name=args["hotel_name"])}
                     elif args.get("preference_query"):
@@ -353,10 +353,6 @@ def _sync_chat(message: str, history: list[dict], from_loc: str, to_loc: str) ->
             result_parts.append(types.Part(
                 function_response=types.FunctionResponse(name=fc.name, response=result)
             ))
-
-        contents.append(types.Content(role="user", parts=result_parts))
-
-
 async def chat(message: str, history: list[dict], from_loc: str = "", to_loc: str = "Default") -> str:
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _sync_chat, message, history, from_loc, to_loc)

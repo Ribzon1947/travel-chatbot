@@ -34,6 +34,23 @@ class HotelSearchError(Exception):
     pass
 
 
+def _cached_rate(existing) -> "int | None":
+    """Extract last_rate_seen as a plain value (or None), avoiding boolean
+    checks directly on a SQLAlchemy Column, which Pylance flags."""
+    if existing is None:
+        return None
+    rate = existing.last_rate_seen
+    return rate
+
+
+def _cached_phone(existing) -> "str | None":
+    """Extract phone as a plain value (or None), same reasoning as _cached_rate."""
+    if existing is None:
+        return None
+    phone = getattr(existing, "phone", None)
+    return phone
+
+
 def _fetch_rate_only(name, city):
     try:
         return estimate_live_hotel_price(name, city)
@@ -74,7 +91,7 @@ def _fetch_details_concurrently(pending, city, api_key, need_phone, overall_time
     running (those simply come back as None -- better than the whole
     request timing out / 502ing).
     """
-    results = {name_item["name"]: {"rate": None, "phone": None} for name_item in pending}
+    results = {item["name"]: {"rate": None, "phone": None} for item in pending}
     if not pending:
         return results
 
@@ -173,11 +190,14 @@ def search_hotels(city, hotel_name=None):
         existing_by_name = {row.name: row for row in existing_rows}
 
         # Figure out which hotels genuinely need a fresh (slow) rate lookup
-        pending = [
-            {"name": item.get("name"), "place_id": item.get("place_id")}
-            for item in results
-            if not (existing_by_name.get(item.get("name")) and existing_by_name[item.get("name")].last_rate_seen)
-        ]
+        pending = []
+        for item in results:
+            name = item.get("name")
+            existing = existing_by_name.get(name)
+            rate = _cached_rate(existing)
+            if not rate:
+                pending.append({"name": name, "place_id": item.get("place_id")})
+
         fetched = _fetch_details_concurrently(pending, city, api_key, need_phone=False)
 
         hotels_list = []
@@ -188,15 +208,13 @@ def search_hotels(city, hotel_name=None):
             price_level = item.get("price_level", 2)
 
             existing_listing = existing_by_name.get(name)
-            if existing_listing and existing_listing.last_rate_seen:
-                real_rate = existing_listing.last_rate_seen
-            else:
-                real_rate = fetched.get(name, {}).get("rate")
+            cached_rate = _cached_rate(existing_listing)
+            real_rate = cached_rate if cached_rate else fetched.get(name, {}).get("rate")
 
             if existing_listing:
                 existing_listing.description = address
-                existing_listing.last_rate_seen = real_rate
-                existing_listing.last_updated = datetime.utcnow()
+                existing_listing.last_rate_seen = real_rate  # type: ignore[assignment]
+                existing_listing.last_updated = datetime.utcnow()  # type: ignore[assignment]
                 if hasattr(existing_listing, "rating"):
                     existing_listing.rating = rating
                 db_hotel = existing_listing
@@ -296,15 +314,15 @@ def search_hotels_page(city, page_token=None):
         existing_by_name = {row.name: row for row in existing_rows}
 
         # Only fetch rate/phone concurrently for hotels missing that data
-        pending = [
-            {"name": item.get("name"), "place_id": item.get("place_id")}
-            for item in results
-            if not (
-                existing_by_name.get(item.get("name"))
-                and existing_by_name[item.get("name")].last_rate_seen
-                and getattr(existing_by_name[item.get("name")], "phone", None)
-            )
-        ]
+        pending = []
+        for item in results:
+            name = item.get("name")
+            existing = existing_by_name.get(name)
+            cached_rate = _cached_rate(existing)
+            cached_phone = _cached_phone(existing)
+            if not cached_rate or not cached_phone:
+                pending.append({"name": name, "place_id": item.get("place_id")})
+
         fetched = _fetch_details_concurrently(pending, city, api_key, need_phone=True)
 
         for item in results:
@@ -314,21 +332,17 @@ def search_hotels_page(city, page_token=None):
             price_level = item.get("price_level", 2)
 
             existing = existing_by_name.get(name)
-            if existing and existing.last_rate_seen:
-                real_rate = existing.last_rate_seen
-            else:
-                real_rate = fetched.get(name, {}).get("rate")
+            cached_rate = _cached_rate(existing)
+            real_rate = cached_rate if cached_rate else fetched.get(name, {}).get("rate")
 
-            if existing and getattr(existing, "phone", None):
-                phone = existing.phone
-            else:
-                phone = fetched.get(name, {}).get("phone")
+            cached_phone = _cached_phone(existing)
+            phone = cached_phone if cached_phone else fetched.get(name, {}).get("phone")
 
             if existing:
                 existing.description = address
-                existing.last_rate_seen = real_rate
-                existing.last_updated = datetime.utcnow()
-                existing.phone = phone
+                existing.last_rate_seen = real_rate  # type: ignore[assignment]
+                existing.last_updated = datetime.utcnow()  # type: ignore[assignment]
+                existing.phone = phone  # type: ignore[assignment]
                 if hasattr(existing, "rating"):
                     existing.rating = rating
                 db_hotel = existing
@@ -422,6 +436,8 @@ def semantic_hotel_search(query, city):
 
             semantic_results = []
             for name in matched_names:
+                if not name:
+                    continue
                 key = name.lower().strip()
                 if key in hotel_lookup:
                     semantic_results.append(hotel_lookup[key])
