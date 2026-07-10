@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-
+from typing import Optional
 
 class ChatMessage(BaseModel):
     role: str
@@ -28,3 +28,4 @@ class DestinationPricing(BaseModel):
 class DestinationCreate(BaseModel):
     name: str
     pricing: DestinationPricing
+    origin: Optional[str] = None

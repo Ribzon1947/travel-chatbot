@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 import asyncio
-
+from sqlalchemy import select
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -166,10 +166,14 @@ async def hotel_search_page_endpoint(city: str, page_token: str | None = None):
 async def list_cached_hotels(city: str | None = None):
     session = SessionLocal()
     try:
-        q = session.query(HotelListing)
+        stmt = select(HotelListing)
+        
         if city:
-            q = q.filter(HotelListing.city == city)
-        rows = q.order_by(HotelListing.city, HotelListing.name).all()
+            stmt = stmt.where(HotelListing.city == city)
+            
+        stmt = stmt.order_by(HotelListing.city, HotelListing.name)
+        rows = session.scalars(stmt).all()
+        
         return [
             {
                 "city": r.city,
@@ -177,13 +181,12 @@ async def list_cached_hotels(city: str | None = None):
                 "address": r.description,
                 "amenities": r.amenities,
                 "last_rate_seen": r.last_rate_seen,
-                "last_updated": r.last_updated.isoformat() if r.last_updated else None,
+                "last_updated": r.last_updated.isoformat() if r.last_updated is not None else None,
             }
             for r in rows
         ]
     finally:
         session.close()
-
 
 @app.post("/api/admin/hotels/refresh", dependencies=[Depends(require_admin)])
 async def refresh_hotels(city: str):

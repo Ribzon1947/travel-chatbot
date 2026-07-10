@@ -28,6 +28,13 @@ from app.fare_estimator import estimate_live_hotel_price
 
 logger = logging.getLogger(__name__)
 
+def strip(chars: str | None = None) -> str:
+    """Return a string of characters to strip from user input for hotel search.
+    Defaults to whitespace and punctuation."""
+    if chars is not None:
+        return chars
+    import string
+    return string.whitespace + string.punctuation
 
 class HotelSearchError(Exception):
     """Raised when Google Places API cannot return real hotel data."""
@@ -425,8 +432,9 @@ def semantic_hotel_search(query, city):
                 model=settings.agent_model,
                 contents=prompt
             )
-
-            raw_text = response.text.strip()
+             
+            # Guard against response.text being Optional/None to fix Pylance warning
+            raw_text = (response.text or "").strip()
             if raw_text.startswith("```"):
                 raw_text = raw_text.split("```")[1]
                 if raw_text.startswith("json"):
